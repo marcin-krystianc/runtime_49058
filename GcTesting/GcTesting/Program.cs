@@ -4,58 +4,110 @@ using System.Diagnostics;
 using System.IO;
 using System.Threading.Tasks;
 using System.Linq;
-
+using CommandLine;
 
 namespace GcTesting
 {
     class Program
     {
-        private static readonly long ELEMENT_SIZE = 128 * (1 << 10);
-        private static readonly long MEMORY_USAGE = 1 * (1l << 30); // 1 GB
-        private static readonly long MEMORY_PRESSURE = 100 * (1l << 20); // 10 MB / s
-        private static readonly long FILE_SIZE = 4 * (1l << 30); // 4 GB
-
+        public class Options
+        {
+            [Option(Required = false, Default = true)] 
+            public bool? MemoryPressureTask { get; set; }
+            
+            [Option(Required = false, Default = true)]
+            public bool? FilePressureTask { get; set; }
+            
+            [Option(Required = false, Default = "1kb")]
+            public string AllocationUnitSize { get; set; }
+            
+            [Option(Required = false, Default = "10mb", HelpText = "How much of new memory to allocate per second")]
+            public string MemoryPressureRate { get; set; }
+            
+            [Option(Required = false, Default = "1gb")]
+            public string MinimumMemoryUsage { get; set; }
+            
+            [Option(Required = false, Default = "1gb")]
+            public string FilePressureSize { get; set; }
+            internal long AllocationUnitSizeValue => FromSize(AllocationUnitSize);
+            internal long MemoryPressureRateValue => FromSize(MemoryPressureRate);
+            internal long MinimumMemoryUsageValue => FromSize(MinimumMemoryUsage);
+            
+            internal long FilePressureSizeValue => FromSize(FilePressureSize);
+        }
+        
         static async Task Main(string[] args)
         {
-            var tasks = new []{GcStatsTask(), MemoryPressureTask(), FilePressureTask()};
-            await await Task.WhenAny(tasks);
+            await Parser.Default.ParseArguments<Options>(args).WithParsedAsync(async options =>
+            {
+                var tasks = new List<Task>();
+                tasks.Add(GcStatsTask());
+                
+                if (options.FilePressureTask == true)
+                {
+                    tasks.Add(FilePressureTask(options.FilePressureSizeValue));
+                }
+                
+                if (options.MemoryPressureTask == true)
+                {
+                    tasks.Add(MemoryPressureTask(options.AllocationUnitSizeValue, options.MemoryPressureRateValue, options.MinimumMemoryUsageValue));
+                }
+
+                await await Task.WhenAny(tasks);
+            });
         }
 
         static async Task GcStatsTask()
         {
+            Console.WriteLine("Starting GcStatsTask");
+            await Task.Delay(TimeSpan.FromSeconds(1));
+
             var stats = new Queue<GCMemoryInfo>();
             while (true)
             {
+                var sw = Stopwatch.StartNew();
+                
                 var gcInfo = GC.GetGCMemoryInfo();
-                var gcSpeed = "N/A";
+                var gcRate = "N/A";
 
                 // Keep probes from last 60 seconds
                 if (stats.Count >= 60)
                 {
                     var oldGcInfo = stats.Dequeue();
-                    gcSpeed = Convert.ToString(gcInfo.Index - oldGcInfo.Index);
+                    gcRate = Convert.ToString(gcInfo.Index - oldGcInfo.Index);
                 }
                 
                 stats.Enqueue(gcInfo);
 
-                Console.WriteLine($"gc/min:{gcSpeed}, " +
+                Console.WriteLine($"{DateTime.UtcNow}, " +
+                                  $"gc/min:{gcRate}, " +
                                   $"Gen012:{GC.CollectionCount(0)},{GC.CollectionCount(1)},{GC.CollectionCount(2)}, " +
-                                  $"Total:{FormatBytes(GC.GetTotalMemory(false))}, " +
-                                  $"Allocated:{FormatBytes(GC.GetTotalAllocatedBytes())}, " +
-                                  $"HeapSize:{FormatBytes(gcInfo.HeapSizeBytes)}, " +
-                                  $"MemoryLoad:{FormatBytes(gcInfo.MemoryLoadBytes)}, " +
-                                  $"Committed:{FormatBytes(gcInfo.TotalCommittedBytes)}, " +
-                                  $"Available:{FormatBytes(gcInfo.TotalAvailableMemoryBytes)}, " +
-                                  $"HighMemoryLoadThreshold:{FormatBytes(gcInfo.HighMemoryLoadThresholdBytes)}, "
+                                  $"Total:{ToSize(GC.GetTotalMemory(false))}, " +
+                                  $"Allocated:{ToSize(GC.GetTotalAllocatedBytes())}, " +
+                                  $"HeapSize:{ToSize(gcInfo.HeapSizeBytes)}, " +
+                                  $"MemoryLoad:{ToSize(gcInfo.MemoryLoadBytes)}, " +
+                                  $"Committed:{ToSize(gcInfo.TotalCommittedBytes)}, " +
+                                  $"Available:{ToSize(gcInfo.TotalAvailableMemoryBytes)}, " +
+                                  $"HighMemoryLoadThreshold:{ToSize(gcInfo.HighMemoryLoadThresholdBytes)}, "
                                   );
 
-                await Task.Delay(TimeSpan.FromSeconds(1));
+                var elapsed = sw.Elapsed;
+                if (elapsed < TimeSpan.FromSeconds(1))
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(1) - elapsed);
+                }
             }
         }
 
-        static async Task MemoryPressureTask()
+        static async Task MemoryPressureTask(long allocationUnitSize, long memoryPressureRate, long minimumMemoryUsage)
         {
-            var list = new List<object>(Enumerable.Range(0, Convert.ToInt32(MEMORY_USAGE / ELEMENT_SIZE))
+            Console.WriteLine($"Starting MemoryPressureTask(allocationUnitSize={ToSize(allocationUnitSize)}, " +
+                              $"memoryPressureRate={ToSize(memoryPressureRate)}, " +
+                              $"minimumMemoryUsage={ToSize(minimumMemoryUsage)})");
+            
+            await Task.Delay(TimeSpan.FromSeconds(1));
+
+            var list = new List<object>(Enumerable.Range(0, Convert.ToInt32(minimumMemoryUsage / allocationUnitSize))
                 .Select(x => (object)null));
             var rnd = new Random();
             var allocatedMemoryInCycle = 0l;
@@ -63,9 +115,9 @@ namespace GcTesting
             while (true)
             {
                 var idx = rnd.Next(list.Count);
-                list[idx] = new byte[ELEMENT_SIZE];
-                allocatedMemoryInCycle += ELEMENT_SIZE;
-                if (allocatedMemoryInCycle >= MEMORY_PRESSURE)
+                list[idx] = new byte[allocationUnitSize];
+                allocatedMemoryInCycle += allocationUnitSize;
+                if (allocatedMemoryInCycle >= memoryPressureRate)
                 {
                     var elapsed = cycleSw.Elapsed;
                     var delay = elapsed >= TimeSpan.FromSeconds(1)
@@ -79,15 +131,17 @@ namespace GcTesting
             }
         }
 
-
-        static async Task FilePressureTask()
+        static async Task FilePressureTask(long filePressureSize)
         {
+            Console.WriteLine($"Starting FilePressureTask(filePressureSize={ToSize(filePressureSize)}");
+            await Task.Delay(TimeSpan.FromSeconds(1));
+            
             var rnd = new Random();
             var tmpPath = Path.Combine(Path.GetTempPath(), "GcTesting");
             var bytes = new byte[1024];
             await using var f = File.Open(tmpPath, FileMode.OpenOrCreate, FileAccess.ReadWrite);
 
-            for (var i = 0; i < FILE_SIZE / bytes.Length; i++)
+            for (var i = 0; i < filePressureSize / bytes.Length; i++)
             {
                 rnd.NextBytes(bytes);
                 f.Write(bytes);
@@ -97,16 +151,45 @@ namespace GcTesting
             {
                 f.Seek(0, SeekOrigin.Begin);
 
-                for (var i = 0; i < FILE_SIZE / bytes.Length; i++)
+                for (var i = 0; i < filePressureSize / bytes.Length; i++)
                 {
                     f.Read(bytes);
                 }
 
-                await Task.Delay(TimeSpan.FromSeconds(10));
+                await Task.Delay(TimeSpan.FromMinutes(1));
             }
         }
 
-        static string FormatBytes(long bytes)
+        // Parse a file size.
+        static long FromSize(string v)
+        {
+            var suffixes = new[] {"b", "kb", "mb", "gb", "tb"};
+            var multipliers = Enumerable.Range(0, suffixes.Length)
+                .ToDictionary(i => suffixes[i], i => 1l << (10 * i), StringComparer.OrdinalIgnoreCase);
+            
+            var suffix = suffixes
+                .Select(suffix => (v.EndsWith(suffix, StringComparison.OrdinalIgnoreCase), suffix))
+                .Reverse()
+                .Where(x => x.Item1 == true)
+                .Select(x => x.suffix)
+                .FirstOrDefault();
+
+            if (suffix != null)
+            {
+                v = v.Substring(0, v.Length - suffix.Length);
+            }
+
+            var result = long.Parse(v);
+           
+            if (suffix != null)
+            {
+                result *= multipliers[suffix];
+            }
+
+            return result;
+        }
+
+        static string ToSize(long bytes)
         {
             const int scale = 1024;
             string[] orders = new string[] { "GB", "MB", "KB", "Bytes" };
@@ -114,8 +197,8 @@ namespace GcTesting
 
             foreach (string order in orders)
             {
-                if ( bytes > max )
-                    return string.Format("{0:##.###0} {1}", decimal.Divide( bytes, max ), order);
+                if ( bytes >= max )
+                    return string.Format("{0:##.###} {1}", decimal.Divide( bytes, max ), order);
 
                 max /= scale;
             }
