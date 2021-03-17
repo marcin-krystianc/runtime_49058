@@ -64,14 +64,16 @@ namespace GcTesting
         {
 
             Console.WriteLine("Starting GcStatsTask, " +
+                              $"UtcNow:{DateTime.UtcNow}, " +
                               $"IsServerGC:{GCSettings.IsServerGC}, " +
                               $"LatencyMode:{GCSettings.LatencyMode}, " +
-                              $"LargeObjectHeapCompactionMode:{GCSettings.LargeObjectHeapCompactionMode}, " +
+                              $"LOHCompactionMode:{GCSettings.LargeObjectHeapCompactionMode}, " +
                               "");
+
             await Task.Delay(TimeSpan.FromSeconds(1));
 
             var stats = new Queue<GCMemoryInfo>();
-            var idx = 0;
+            var swGlobal = Stopwatch.StartNew();
             while (true)
             {
                 var sw = Stopwatch.StartNew();
@@ -94,9 +96,8 @@ namespace GcTesting
                     usageInBytes = ToSize(Convert.ToInt64(File.ReadLines(USAGE_IN_BYTES).First()));
                 }
                 
-                Console.WriteLine($"{DateTime.UtcNow}, " +
-                                  $"idx:{idx++,3:N0}, " +
-                                  $"gc/min:{gcRate}, " +
+                Console.WriteLine($"Elapsed:{(int)swGlobal.Elapsed.TotalSeconds,3:N0}s, " +
+                                  $"GC-Rate:{gcRate}, " +
                                   $"Gen012:{GC.CollectionCount(0)},{GC.CollectionCount(1)},{GC.CollectionCount(2)}, " +
                                   $"Total:{ToSize(GC.GetTotalMemory(false))}, " +
                                   $"Allocated:{ToSize(GC.GetTotalAllocatedBytes())}, " +
@@ -125,7 +126,7 @@ namespace GcTesting
             await Task.Delay(TimeSpan.FromSeconds(1));
 
             var list = new List<object>(Enumerable.Range(0, Convert.ToInt32(minimumMemoryUsage / allocationUnitSize))
-                .Select(x => (object)null));
+                .Select(x => new byte[allocationUnitSize]));
 
             var allocatedMemoryInCycle = 0l;
             var cycleSw = Stopwatch.StartNew();
