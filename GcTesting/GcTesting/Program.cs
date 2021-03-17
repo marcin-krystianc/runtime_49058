@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Threading.Tasks;
 using System.Linq;
+using System.Runtime;
 using CommandLine;
 
 namespace GcTesting
@@ -61,7 +62,12 @@ namespace GcTesting
 
         static async Task GcStatsTask()
         {
-            Console.WriteLine("Starting GcStatsTask");
+
+            Console.WriteLine("Starting GcStatsTask, " +
+                              $"IsServerGC:{GCSettings.IsServerGC}, " +
+                              $"LatencyMode:{GCSettings.LatencyMode}, " +
+                              $"LargeObjectHeapCompactionMode:{GCSettings.LargeObjectHeapCompactionMode}, " +
+                              "");
             await Task.Delay(TimeSpan.FromSeconds(1));
 
             var stats = new Queue<GCMemoryInfo>();
@@ -85,11 +91,11 @@ namespace GcTesting
                 string usageInBytes = "N/A";
                 if (File.Exists(USAGE_IN_BYTES))
                 {
-                    usageInBytes = File.ReadLines(USAGE_IN_BYTES).First();
+                    usageInBytes = ToSize(Convert.ToInt64(File.ReadLines(USAGE_IN_BYTES).First()));
                 }
                 
                 Console.WriteLine($"{DateTime.UtcNow}, " +
-                                  $"idx:{idx++}, " +
+                                  $"idx:{idx++,3:N0}, " +
                                   $"gc/min:{gcRate}, " +
                                   $"Gen012:{GC.CollectionCount(0)},{GC.CollectionCount(1)},{GC.CollectionCount(2)}, " +
                                   $"Total:{ToSize(GC.GetTotalMemory(false))}, " +
@@ -212,7 +218,7 @@ namespace GcTesting
             foreach (string order in orders)
             {
                 if ( bytes >= max )
-                    return string.Format("{0:##.###} {1}", decimal.Divide( bytes, max ), order);
+                    return string.Format("{0:###.#0} {1}", decimal.Divide( bytes, max ), order);
 
                 max /= scale;
             }
