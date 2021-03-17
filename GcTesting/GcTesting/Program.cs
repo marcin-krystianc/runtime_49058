@@ -10,6 +10,8 @@ namespace GcTesting
 {
     class Program
     {
+        private const string USAGE_IN_BYTES = "/sys/fs/cgroup/memory/memory.usage_in_bytes";
+        
         public class Options
         {
             [Option(Required = false, Default = true)] 
@@ -63,6 +65,7 @@ namespace GcTesting
             await Task.Delay(TimeSpan.FromSeconds(1));
 
             var stats = new Queue<GCMemoryInfo>();
+            var idx = 0;
             while (true)
             {
                 var sw = Stopwatch.StartNew();
@@ -79,7 +82,14 @@ namespace GcTesting
                 
                 stats.Enqueue(gcInfo);
 
+                string usageInBytes = "N/A";
+                if (File.Exists(USAGE_IN_BYTES))
+                {
+                    usageInBytes = File.ReadLines(USAGE_IN_BYTES).First();
+                }
+                
                 Console.WriteLine($"{DateTime.UtcNow}, " +
+                                  $"idx:{idx++}, " +
                                   $"gc/min:{gcRate}, " +
                                   $"Gen012:{GC.CollectionCount(0)},{GC.CollectionCount(1)},{GC.CollectionCount(2)}, " +
                                   $"Total:{ToSize(GC.GetTotalMemory(false))}, " +
@@ -88,8 +98,9 @@ namespace GcTesting
                                   $"MemoryLoad:{ToSize(gcInfo.MemoryLoadBytes)}, " +
                                   $"Committed:{ToSize(gcInfo.TotalCommittedBytes)}, " +
                                   $"Available:{ToSize(gcInfo.TotalAvailableMemoryBytes)}, " +
-                                  $"HighMemoryLoadThreshold:{ToSize(gcInfo.HighMemoryLoadThresholdBytes)}, "
-                                  );
+                                  $"HighMemoryLoadThreshold:{ToSize(gcInfo.HighMemoryLoadThresholdBytes)}, " +
+                                  $"CGroupUsageInBytes:{usageInBytes}, " +
+                                  "");
 
                 var elapsed = sw.Elapsed;
                 if (elapsed < TimeSpan.FromSeconds(1))
@@ -109,13 +120,16 @@ namespace GcTesting
 
             var list = new List<object>(Enumerable.Range(0, Convert.ToInt32(minimumMemoryUsage / allocationUnitSize))
                 .Select(x => (object)null));
-            var rnd = new Random();
+
             var allocatedMemoryInCycle = 0l;
             var cycleSw = Stopwatch.StartNew();
+            var idx = 0;
             while (true)
             {
-                var idx = rnd.Next(list.Count);
                 list[idx] = new byte[allocationUnitSize];
+                if (++idx >= list.Count)
+                    idx = 0;
+
                 allocatedMemoryInCycle += allocationUnitSize;
                 if (allocatedMemoryInCycle >= memoryPressureRate)
                 {
@@ -138,7 +152,7 @@ namespace GcTesting
             
             var rnd = new Random();
             var tmpPath = Path.Combine(Path.GetTempPath(), "GcTesting");
-            var bytes = new byte[1024];
+            var bytes = new byte[65536];
             await using var f = File.Open(tmpPath, FileMode.OpenOrCreate, FileAccess.ReadWrite);
 
             for (var i = 0; i < filePressureSize / bytes.Length; i++)
@@ -156,7 +170,7 @@ namespace GcTesting
                     f.Read(bytes);
                 }
 
-                await Task.Delay(TimeSpan.FromMinutes(1));
+                await Task.Delay(TimeSpan.FromMilliseconds(1));
             }
         }
 
