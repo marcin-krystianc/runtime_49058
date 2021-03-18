@@ -12,6 +12,7 @@ namespace GcTesting
     class Program
     {
         private const string USAGE_IN_BYTES = "/sys/fs/cgroup/memory/memory.usage_in_bytes";
+        private static int _blocksAllocated = 0;
 
         public class Options
         {
@@ -63,6 +64,7 @@ namespace GcTesting
 
         static async Task GcStatsTask()
         {
+            int lastBlocksAllocated = 0;
             Console.WriteLine("Starting GcStatsTask, " +
                               $"UtcNow:{DateTime.UtcNow}, " +
                               $"IsServerGC:{GCSettings.IsServerGC}, " +
@@ -96,6 +98,8 @@ namespace GcTesting
                     usageInBytes = ToSize(Convert.ToInt64(File.ReadLines(USAGE_IN_BYTES).First()));
                 }
 
+		int currentBlocksAllocated = _blocksAllocated;
+
                 Console.WriteLine($"Elapsed:{(int) swGlobal.Elapsed.TotalSeconds,3:N0}s, " +
                                   $"GC-Rate:{gcRate}, " +
                                   $"Gen012:{GC.CollectionCount(0)},{GC.CollectionCount(1)},{GC.CollectionCount(2)}, " +
@@ -107,7 +111,10 @@ namespace GcTesting
                                   $"Available:{ToSize(gcInfo.TotalAvailableMemoryBytes)}, " +
                                   $"HighMemoryLoadThreshold:{ToSize(gcInfo.HighMemoryLoadThresholdBytes)}, " +
                                   $"CGroupUsageInBytes:{usageInBytes}, " +
+                                  $"BlockAllocationsPerformed:{currentBlocksAllocated - lastBlocksAllocated}, " +
                                   "");
+
+		lastBlocksAllocated = currentBlocksAllocated;
 
                 var elapsed = sw.Elapsed;
                 if (elapsed < TimeSpan.FromSeconds(1))
@@ -135,6 +142,8 @@ namespace GcTesting
                 {
                     bytes[i] = Convert.ToByte(seed % 256);
                 }
+
+		_blocksAllocated++;
 
                 return bytes;
             };
