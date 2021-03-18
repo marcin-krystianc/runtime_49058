@@ -42,24 +42,32 @@ namespace GcTesting
 
         static async Task Main(string[] args)
         {
-            await Parser.Default.ParseArguments<Options>(args).WithParsedAsync(async options =>
+            try
             {
-                var tasks = new List<Task>();
-                tasks.Add(GcStatsTask());
-
-                if (options.FilePressureTask == true)
+                await Parser.Default.ParseArguments<Options>(args).WithParsedAsync(async options =>
                 {
-                    tasks.Add(FilePressureTask(options.FilePressureSizeValue));
-                }
+                    var tasks = new List<Task>();
+                    tasks.Add(GcStatsTask());
 
-                if (options.MemoryPressureTask == true)
-                {
-                    tasks.Add(MemoryPressureTask(options.AllocationUnitSizeValue, options.MemoryPressureRateValue,
-                        options.MinimumMemoryUsageValue));
-                }
+                    if (options.FilePressureTask == true)
+                    {
+                        tasks.Add(FilePressureTask(options.FilePressureSizeValue));
+                    }
 
-                await await Task.WhenAny(tasks);
-            });
+                    if (options.MemoryPressureTask == true)
+                    {
+                        tasks.Add(MemoryPressureTask(options.AllocationUnitSizeValue, options.MemoryPressureRateValue,
+                            options.MinimumMemoryUsageValue));
+                    }
+
+                    await await Task.WhenAny(tasks);
+                });
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine(e);
+                throw;
+            }
         }
 
         static async Task GcStatsTask()
@@ -98,7 +106,7 @@ namespace GcTesting
                     usageInBytes = ToSize(Convert.ToInt64(File.ReadLines(USAGE_IN_BYTES).First()));
                 }
 
-		int currentBlocksAllocated = _blocksAllocated;
+                int currentBlocksAllocated = _blocksAllocated;
 
                 Console.WriteLine($"Elapsed:{(int) swGlobal.Elapsed.TotalSeconds,3:N0}s, " +
                                   $"GC-Rate:{gcRate}, " +
@@ -114,7 +122,7 @@ namespace GcTesting
                                   $"BlockAllocationsPerformed:{currentBlocksAllocated - lastBlocksAllocated}, " +
                                   "");
 
-		lastBlocksAllocated = currentBlocksAllocated;
+                lastBlocksAllocated = currentBlocksAllocated;
 
                 var elapsed = sw.Elapsed;
                 if (elapsed < TimeSpan.FromSeconds(1))
@@ -143,7 +151,7 @@ namespace GcTesting
                     bytes[i] = Convert.ToByte(seed % 256);
                 }
 
-		_blocksAllocated++;
+                _blocksAllocated++;
 
                 return bytes;
             };
