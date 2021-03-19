@@ -14,7 +14,7 @@ namespace GcTesting
     {
         private const string USAGE_IN_BYTES = "/sys/fs/cgroup/memory/memory.usage_in_bytes";
         private const string OOM_CONTROL = "/sys/fs/cgroup/memory/memory.oom_control";
-        private const string LIMIT_IN_BYTES = "/sys/fs/cgroup/memory/memory.oom_control";
+        private const string LIMIT_IN_BYTES = "/sys/fs/cgroup/memory/memory.limit_in_bytes";
         private static long _blocksAllocated = 0;
 
         public class Options
