@@ -5,6 +5,7 @@ using System.IO;
 using System.Threading.Tasks;
 using System.Linq;
 using System.Runtime;
+using System.Threading;
 using CommandLine;
 
 namespace GcTesting
@@ -12,7 +13,9 @@ namespace GcTesting
     class Program
     {
         private const string USAGE_IN_BYTES = "/sys/fs/cgroup/memory/memory.usage_in_bytes";
-        private static int _blocksAllocated = 0;
+        private const string OOM_CONTROL = "/sys/fs/cgroup/memory/memory.oom_control";
+        private const string LIMIT_IN_BYTES = "/sys/fs/cgroup/memory/memory.oom_control";
+        private static long _blocksAllocated = 0;
 
         public class Options
         {
@@ -43,26 +46,26 @@ namespace GcTesting
         static async Task Main(string[] args)
         {
             try
+        {
+            await Parser.Default.ParseArguments<Options>(args).WithParsedAsync(async options =>
             {
-                await Parser.Default.ParseArguments<Options>(args).WithParsedAsync(async options =>
+                var tasks = new List<Task>();
+                tasks.Add(GcStatsTask());
+
+                if (options.FilePressureTask == true)
                 {
-                    var tasks = new List<Task>();
-                    tasks.Add(GcStatsTask());
+                    tasks.Add(FilePressureTask(options.FilePressureSizeValue));
+                }
 
-                    if (options.FilePressureTask == true)
-                    {
-                        tasks.Add(FilePressureTask(options.FilePressureSizeValue));
-                    }
+                if (options.MemoryPressureTask == true)
+                {
+                    tasks.Add(MemoryPressureTask(options.AllocationUnitSizeValue, options.MemoryPressureRateValue,
+                        options.MinimumMemoryUsageValue));
+                }
 
-                    if (options.MemoryPressureTask == true)
-                    {
-                        tasks.Add(MemoryPressureTask(options.AllocationUnitSizeValue, options.MemoryPressureRateValue,
-                            options.MinimumMemoryUsageValue));
-                    }
-
-                    await await Task.WhenAny(tasks);
-                });
-            }
+                await await Task.WhenAny(tasks);
+            });
+        }
             catch (Exception e)
             {
                 Console.WriteLine(e);
@@ -72,7 +75,6 @@ namespace GcTesting
 
         static async Task GcStatsTask()
         {
-            int lastBlocksAllocated = 0;
             Console.WriteLine("Starting GcStatsTask, " +
                               $"UtcNow:{DateTime.UtcNow}, " +
                               $"IsServerGC:{GCSettings.IsServerGC}, " +
@@ -81,7 +83,19 @@ namespace GcTesting
                               "");
 
             await Task.Delay(TimeSpan.FromSeconds(1));
-
+            
+            if (File.Exists(OOM_CONTROL))
+            {
+                Console.WriteLine($"{OOM_CONTROL}:");
+                Console.WriteLine(await File.ReadAllTextAsync(OOM_CONTROL));
+            }
+            
+            if (File.Exists(LIMIT_IN_BYTES))
+            {
+                Console.WriteLine($"{LIMIT_IN_BYTES}:");
+                Console.WriteLine(await File.ReadAllTextAsync(LIMIT_IN_BYTES));
+            }
+            
             var stats = new Queue<GCMemoryInfo>();
             var swGlobal = Stopwatch.StartNew();
             while (true)
@@ -105,9 +119,7 @@ namespace GcTesting
                 {
                     usageInBytes = ToSize(Convert.ToInt64(File.ReadLines(USAGE_IN_BYTES).First()));
                 }
-
-                int currentBlocksAllocated = _blocksAllocated;
-
+                
                 Console.WriteLine($"Elapsed:{(int) swGlobal.Elapsed.TotalSeconds,3:N0}s, " +
                                   $"GC-Rate:{gcRate}, " +
                                   $"Gen012:{GC.CollectionCount(0)},{GC.CollectionCount(1)},{GC.CollectionCount(2)}, " +
@@ -119,10 +131,8 @@ namespace GcTesting
                                   $"Available:{ToSize(gcInfo.TotalAvailableMemoryBytes)}, " +
                                   $"HighMemoryLoadThreshold:{ToSize(gcInfo.HighMemoryLoadThresholdBytes)}, " +
                                   $"CGroupUsageInBytes:{usageInBytes}, " +
-                                  $"BlockAllocationsPerformed:{currentBlocksAllocated - lastBlocksAllocated}, " +
+                                  $"BlockAllocations:{Interlocked.Read(ref _blocksAllocated)}, " +
                                   "");
-
-                lastBlocksAllocated = currentBlocksAllocated;
 
                 var elapsed = sw.Elapsed;
                 if (elapsed < TimeSpan.FromSeconds(1))
@@ -151,7 +161,7 @@ namespace GcTesting
                     bytes[i] = Convert.ToByte(seed % 256);
                 }
 
-                _blocksAllocated++;
+                Interlocked.Increment(ref _blocksAllocated);
 
                 return bytes;
             };
