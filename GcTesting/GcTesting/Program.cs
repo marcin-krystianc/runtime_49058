@@ -46,29 +46,41 @@ namespace GcTesting
         static async Task Main(string[] args)
         {
             try
-        {
-            await Parser.Default.ParseArguments<Options>(args).WithParsedAsync(async options =>
             {
-                var tasks = new List<Task>();
-                tasks.Add(GcStatsTask());
-
-                if (options.FilePressureTask == true)
+                await Parser.Default.ParseArguments<Options>(args).WithParsedAsync(async options =>
                 {
-                    tasks.Add(FilePressureTask(options.FilePressureSizeValue));
-                }
+                    var tasks = new List<Task>();
+                    tasks.Add(GcStatsTask());
 
-                if (options.MemoryPressureTask == true)
-                {
-                    tasks.Add(MemoryPressureTask(options.AllocationUnitSizeValue, options.MemoryPressureRateValue,
-                        options.MinimumMemoryUsageValue));
-                }
+                    if (options.FilePressureTask == true)
+                    {
+                        tasks.Add(FilePressureTask(options.FilePressureSizeValue));
+                    }
 
-                await await Task.WhenAny(tasks);
-            });
-        }
-            catch (Exception e)
+                    if (options.MemoryPressureTask == true)
+                    {
+                        tasks.Add(MemoryPressureTask(options.AllocationUnitSizeValue, options.MemoryPressureRateValue,
+                            options.MinimumMemoryUsageValue));
+                    }
+
+                    await await Task.WhenAny(tasks);
+                });
+            }
+            catch (OutOfMemoryException e)
             {
                 Console.WriteLine(e);
+
+                var gcInfo = GC.GetGCMemoryInfo();
+                Console.WriteLine($"Gen012:{GC.CollectionCount(0)},{GC.CollectionCount(1)},{GC.CollectionCount(2)}, " +
+                                  $"Total:{ToSize(GC.GetTotalMemory(false))}, " +
+                                  $"Allocated:{ToSize(GC.GetTotalAllocatedBytes())}, " +
+                                  $"HeapSize:{ToSize(gcInfo.HeapSizeBytes)}, " +
+                                  $"MemoryLoad:{ToSize(gcInfo.MemoryLoadBytes)}, " +
+                                  $"Committed:{ToSize(gcInfo.TotalCommittedBytes)}, " +
+                                  $"Available:{ToSize(gcInfo.TotalAvailableMemoryBytes)}, " +
+                                  $"HighMemoryLoadThreshold:{ToSize(gcInfo.HighMemoryLoadThresholdBytes)}, " +
+                                  $"BlockAllocations:{Interlocked.Read(ref _blocksAllocated)}, " +
+                                  "");
                 throw;
             }
         }
@@ -83,19 +95,19 @@ namespace GcTesting
                               "");
 
             await Task.Delay(TimeSpan.FromSeconds(1));
-            
+
             if (File.Exists(OOM_CONTROL))
             {
                 Console.WriteLine($"{OOM_CONTROL}:");
                 Console.WriteLine(await File.ReadAllTextAsync(OOM_CONTROL));
             }
-            
+
             if (File.Exists(LIMIT_IN_BYTES))
             {
                 Console.WriteLine($"{LIMIT_IN_BYTES}:");
-                Console.WriteLine(await File.ReadAllTextAsync(LIMIT_IN_BYTES));
+                Console.WriteLine(ToSize(Convert.ToInt64(File.ReadLines(LIMIT_IN_BYTES).First())));
             }
-            
+
             var stats = new Queue<GCMemoryInfo>();
             var swGlobal = Stopwatch.StartNew();
             while (true)
@@ -119,7 +131,7 @@ namespace GcTesting
                 {
                     usageInBytes = ToSize(Convert.ToInt64(File.ReadLines(USAGE_IN_BYTES).First()));
                 }
-                
+
                 Console.WriteLine($"Elapsed:{(int) swGlobal.Elapsed.TotalSeconds,3:N0}s, " +
                                   $"GC-Rate:{gcRate}, " +
                                   $"Gen012:{GC.CollectionCount(0)},{GC.CollectionCount(1)},{GC.CollectionCount(2)}, " +
@@ -154,14 +166,14 @@ namespace GcTesting
             Func<byte[]> allocate = () =>
             {
                 var bytes = new byte[allocationUnitSize];
+                Interlocked.Increment(ref _blocksAllocated);
+
                 // Write anything to the new memory block to force-commit it.  
                 var seed = rnd.Next(256);
                 for (var i = 0; i < bytes.Length; i++)
                 {
                     bytes[i] = Convert.ToByte(seed % 256);
                 }
-
-                Interlocked.Increment(ref _blocksAllocated);
 
                 return bytes;
             };
@@ -174,11 +186,6 @@ namespace GcTesting
             var idx = 0;
             while (true)
             {
-                list[idx] = allocate();
-                if (++idx >= list.Count)
-                    idx = 0;
-
-                allocatedMemoryInCycle += allocationUnitSize;
                 if (allocatedMemoryInCycle >= memoryPressureRate)
                 {
                     var elapsed = cycleSw.Elapsed;
@@ -189,6 +196,14 @@ namespace GcTesting
                     await Task.Delay(delay);
                     cycleSw = Stopwatch.StartNew();
                     allocatedMemoryInCycle = 0;
+                }
+                else
+                {
+                    list[idx] = allocate();
+                    if (++idx >= list.Count)
+                        idx = 0;
+
+                    allocatedMemoryInCycle += allocationUnitSize;
                 }
             }
         }
