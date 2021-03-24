@@ -5,6 +5,7 @@ using System.IO;
 using System.Threading.Tasks;
 using System.Linq;
 using System.Runtime;
+using System.Runtime.InteropServices;
 using System.Threading;
 using CommandLine;
 using Serilog;
@@ -20,12 +21,16 @@ namespace GcTesting
         private static long _blocksAllocated = 0;
         private static long _fullGcCompleted = -1;
         private static List<byte[]> _allocatedBlocks;
-        
+
         public class Options
         {
             [Option(Required = false, Default = true)]
             public bool? MemoryPressureTask { get; set; }
-            
+
+            [Option(Required = false, Default = false,
+                HelpText = "Runs the task for testing unmanaged memory allocations.")]
+            public bool? UnmanagedMemoryPressureTask { get; set; }
+
             [Option(Required = false, Default = true, HelpText = "Register for full-GC notifications and counts them.")]
             public bool? GcNotificationsTask { get; set; }
 
@@ -38,17 +43,28 @@ namespace GcTesting
             [Option(Required = false, Default = "10mb", HelpText = "How much of new memory to allocate per second")]
             public string MemoryPressureRate { get; set; }
 
-            [Option(Required = false, Default = "1gb")]
+            [Option(Required = false, Default = "10mb",
+                HelpText = "Amount of new unmanaged memory to allocate per second")]
+            public string UnmanagedMemoryPressureRate { get; set; }
+
+            [Option(Required = false, Default = "1gb",
+                HelpText = "Memory to be referenced and allocated at program start.")]
             public string MinimumMemoryUsage { get; set; }
-            
+
+            [Option(Required = false, Default = "1gb", HelpText = "Unmanaged memory to be allocated at program start.")]
+            public string MinimumUnmanagedMemoryUsage { get; set; }
+
             [Option(Required = false, Default = false)]
-            public bool LeakMemory{ get; set; }
+            public bool LeakMemory { get; set; }
 
             [Option(Required = false, Default = "1gb")]
             public string FilePressureSize { get; set; }
+
             internal long AllocationUnitSizeValue => FromSize(AllocationUnitSize);
             internal long MemoryPressureRateValue => FromSize(MemoryPressureRate);
+            internal long UnmanagedMemoryPressureRateValue => FromSize(UnmanagedMemoryPressureRate);
             internal long MinimumMemoryUsageValue => FromSize(MinimumMemoryUsage);
+            internal long MinimumUnmanagedMemoryUsageValue => FromSize(MinimumUnmanagedMemoryUsage);
             internal long FilePressureSizeValue => FromSize(FilePressureSize);
         }
 
@@ -61,11 +77,11 @@ namespace GcTesting
                     .CreateLogger();
 
                 Log.Information($"OSDescription:{System.Runtime.InteropServices.RuntimeInformation.OSDescription}, " +
-                           $"OSArchitecture:{System.Runtime.InteropServices.RuntimeInformation.OSArchitecture}, " +
-                           $"RuntimeIdentifier:{System.Runtime.InteropServices.RuntimeInformation.RuntimeIdentifier}, " +
-                           $"ProcessArchitecture:{System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture}, " +
-                           $"FrameworkDescription:{System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription}, " +
-                           "");
+                                $"OSArchitecture:{System.Runtime.InteropServices.RuntimeInformation.OSArchitecture}, " +
+                                $"RuntimeIdentifier:{System.Runtime.InteropServices.RuntimeInformation.RuntimeIdentifier}, " +
+                                $"ProcessArchitecture:{System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture}, " +
+                                $"FrameworkDescription:{System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription}, " +
+                                "");
 
                 await Parser.Default.ParseArguments<Options>(args).WithParsedAsync(async options =>
                 {
@@ -88,6 +104,12 @@ namespace GcTesting
                             options.MinimumMemoryUsageValue, options.LeakMemory));
                     }
 
+                    if (options.UnmanagedMemoryPressureTask == true)
+                    {
+                        tasks.Add(UnmanagedMemoryPressureTask(65536, options.UnmanagedMemoryPressureRateValue,
+                            options.MinimumUnmanagedMemoryUsageValue));
+                    }
+
                     await await Task.WhenAny(tasks);
                 });
             }
@@ -96,18 +118,18 @@ namespace GcTesting
                 Log.Information(e.ToString() + Environment.NewLine);
 
                 var gcInfo = GC.GetGCMemoryInfo();
-                
+
                 Log.Information($"Gen012:{GC.CollectionCount(0)},{GC.CollectionCount(1)},{GC.CollectionCount(2)}, " +
-                              $"Total:{ToSize(GC.GetTotalMemory(false))}, " +
-                              $"Allocated:{ToSize(GC.GetTotalAllocatedBytes())}, " +
-                              $"HeapSize:{ToSize(gcInfo.HeapSizeBytes)}, " +
-                              $"MemoryLoad:{ToSize(gcInfo.MemoryLoadBytes)}, " +
-                              $"Committed:{ToSize(gcInfo.TotalCommittedBytes)}, " +
-                              $"Available:{ToSize(gcInfo.TotalAvailableMemoryBytes)}, " +
-                              $"HighMemoryLoadThreshold:{ToSize(gcInfo.HighMemoryLoadThresholdBytes)}, " +
-                              $"BlockAllocations:{Interlocked.Read(ref _blocksAllocated)}, " +
-                              $"FullGcCompleted:{Interlocked.Read(ref _fullGcCompleted)}, " +
-                              "");
+                                $"Total:{ToSize(GC.GetTotalMemory(false))}, " +
+                                $"Allocated:{ToSize(GC.GetTotalAllocatedBytes())}, " +
+                                $"HeapSize:{ToSize(gcInfo.HeapSizeBytes)}, " +
+                                $"MemoryLoad:{ToSize(gcInfo.MemoryLoadBytes)}, " +
+                                $"Committed:{ToSize(gcInfo.TotalCommittedBytes)}, " +
+                                $"Available:{ToSize(gcInfo.TotalAvailableMemoryBytes)}, " +
+                                $"HighMemoryLoadThreshold:{ToSize(gcInfo.HighMemoryLoadThresholdBytes)}, " +
+                                $"BlockAllocations:{Interlocked.Read(ref _blocksAllocated)}, " +
+                                $"FullGcCompleted:{Interlocked.Read(ref _fullGcCompleted)}, " +
+                                "");
                 throw;
             }
         }
@@ -115,11 +137,11 @@ namespace GcTesting
         static async Task GcStatsTask()
         {
             Log.Information("Starting GcStatsTask, " +
-                             $"UtcNow:{DateTime.UtcNow}, " +
-                             $"IsServerGC:{GCSettings.IsServerGC}, " +
-                             $"LatencyMode:{GCSettings.LatencyMode}, " +
-                             $"LOHCompactionMode:{GCSettings.LargeObjectHeapCompactionMode}, " +
-                             "");
+                            $"UtcNow:{DateTime.UtcNow}, " +
+                            $"IsServerGC:{GCSettings.IsServerGC}, " +
+                            $"LatencyMode:{GCSettings.LatencyMode}, " +
+                            $"LOHCompactionMode:{GCSettings.LargeObjectHeapCompactionMode}, " +
+                            "");
 
             await Task.Delay(TimeSpan.FromSeconds(1));
 
@@ -182,7 +204,8 @@ namespace GcTesting
             }
         }
 
-        static async Task MemoryPressureTask(long allocationUnitSize, long memoryPressureRate, long minimumMemoryUsage, bool leakMemory)
+        static async Task MemoryPressureTask(long allocationUnitSize, long memoryPressureRate, long minimumMemoryUsage,
+            bool leakMemory)
         {
             Log.Information($"Starting MemoryPressureTask(allocationUnitSize={ToSize(allocationUnitSize)}, " +
                             $"memoryPressureRate={ToSize(memoryPressureRate)}, " +
@@ -210,7 +233,7 @@ namespace GcTesting
             var initialSize = Convert.ToInt32(minimumMemoryUsage / allocationUnitSize);
             _allocatedBlocks = new List<byte[]>(initialSize);
             _allocatedBlocks.AddRange(Enumerable.Range(0, initialSize).Select(_ => allocate()));
-            
+
             var allocatedMemoryInCycle = 0L;
             var cycleSw = Stopwatch.StartNew();
             var idx = 0;
@@ -239,8 +262,44 @@ namespace GcTesting
                         if (++idx >= _allocatedBlocks.Count)
                             idx = 0;
                     }
-                    
+
                     allocatedMemoryInCycle += allocationUnitSize;
+                }
+            }
+        }
+
+        static async Task UnmanagedMemoryPressureTask(long unmanagedAllocationUnitSize,
+            long unmanagedMemoryPressureRate, long minimumUnmanagedMemoryUsage)
+        {
+            Log.Information(
+                $"Starting UnmanagedMemoryPressureTask({nameof(unmanagedAllocationUnitSize)}={ToSize(unmanagedAllocationUnitSize)}, " +
+                $"{nameof(unmanagedMemoryPressureRate)}={ToSize(unmanagedMemoryPressureRate)}, " +
+                $"{nameof(minimumUnmanagedMemoryUsage)}={ToSize(minimumUnmanagedMemoryUsage)}, " +
+                "");
+
+            await Task.Delay(TimeSpan.FromSeconds(1));
+
+            Marshal.AllocHGlobal((int) minimumUnmanagedMemoryUsage);
+            var allocatedMemoryInCycle = 0L;
+            var cycleSw = Stopwatch.StartNew();
+
+            while (true)
+            {
+                if (allocatedMemoryInCycle >= unmanagedMemoryPressureRate)
+                {
+                    var elapsed = cycleSw.Elapsed;
+                    var delay = elapsed >= TimeSpan.FromSeconds(1)
+                        ? TimeSpan.Zero
+                        : TimeSpan.FromSeconds(1) - elapsed;
+
+                    await Task.Delay(delay);
+                    cycleSw = Stopwatch.StartNew();
+                    allocatedMemoryInCycle = 0;
+                }
+                else
+                {
+                    Marshal.AllocHGlobal((int) unmanagedAllocationUnitSize);
+                    allocatedMemoryInCycle += unmanagedAllocationUnitSize;
                 }
             }
         }
@@ -284,7 +343,7 @@ namespace GcTesting
 
             GC.RegisterForFullGCNotification(1, 1);
             _fullGcCompleted = 0;
-            
+
             while (true)
             {
                 if (GC.WaitForFullGCApproach() == GCNotificationStatus.NotApplicable)
