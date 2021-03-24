@@ -59,7 +59,14 @@ namespace GcTesting
                 Log.Logger = new LoggerConfiguration()
                     .WriteTo.Console(theme: ConsoleTheme.None)
                     .CreateLogger();
-                
+
+                Log.Information($"OSDescription:{System.Runtime.InteropServices.RuntimeInformation.OSDescription}, " +
+                           $"OSArchitecture:{System.Runtime.InteropServices.RuntimeInformation.OSArchitecture}, " +
+                           $"RuntimeIdentifier:{System.Runtime.InteropServices.RuntimeInformation.RuntimeIdentifier}, " +
+                           $"ProcessArchitecture:{System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture}, " +
+                           $"FrameworkDescription:{System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription}, " +
+                           "");
+
                 await Parser.Default.ParseArguments<Options>(args).WithParsedAsync(async options =>
                 {
                     var tasks = new List<Task>();
