@@ -7,6 +7,7 @@ using System.Linq;
 using System.Runtime;
 using System.Threading;
 using CommandLine;
+using Serilog;
 
 namespace GcTesting
 {
@@ -47,10 +48,15 @@ namespace GcTesting
         {
             try
             {
+                Log.Logger = new LoggerConfiguration()
+                    .WriteTo.Console()
+                    .CreateLogger();
+                
                 await Parser.Default.ParseArguments<Options>(args).WithParsedAsync(async options =>
                 {
                     var tasks = new List<Task>();
                     tasks.Add(GcStatsTask());
+                    tasks.Add(FullGCLoggerTask());
 
                     if (options.FilePressureTask == true)
                     {
@@ -68,44 +74,44 @@ namespace GcTesting
             }
             catch (OutOfMemoryException e)
             {
-                Console.WriteLine(e);
+                Log.Information(e.ToString());
 
                 var gcInfo = GC.GetGCMemoryInfo();
-                Console.WriteLine($"Gen012:{GC.CollectionCount(0)},{GC.CollectionCount(1)},{GC.CollectionCount(2)}, " +
-                                  $"Total:{ToSize(GC.GetTotalMemory(false))}, " +
-                                  $"Allocated:{ToSize(GC.GetTotalAllocatedBytes())}, " +
-                                  $"HeapSize:{ToSize(gcInfo.HeapSizeBytes)}, " +
-                                  $"MemoryLoad:{ToSize(gcInfo.MemoryLoadBytes)}, " +
-                                  $"Committed:{ToSize(gcInfo.TotalCommittedBytes)}, " +
-                                  $"Available:{ToSize(gcInfo.TotalAvailableMemoryBytes)}, " +
-                                  $"HighMemoryLoadThreshold:{ToSize(gcInfo.HighMemoryLoadThresholdBytes)}, " +
-                                  $"BlockAllocations:{Interlocked.Read(ref _blocksAllocated)}, " +
-                                  "");
+                Log.Information($"Gen012:{GC.CollectionCount(0)},{GC.CollectionCount(1)},{GC.CollectionCount(2)}, " +
+                              $"Total:{ToSize(GC.GetTotalMemory(false))}, " +
+                              $"Allocated:{ToSize(GC.GetTotalAllocatedBytes())}, " +
+                              $"HeapSize:{ToSize(gcInfo.HeapSizeBytes)}, " +
+                              $"MemoryLoad:{ToSize(gcInfo.MemoryLoadBytes)}, " +
+                              $"Committed:{ToSize(gcInfo.TotalCommittedBytes)}, " +
+                              $"Available:{ToSize(gcInfo.TotalAvailableMemoryBytes)}, " +
+                              $"HighMemoryLoadThreshold:{ToSize(gcInfo.HighMemoryLoadThresholdBytes)}, " +
+                              $"BlockAllocations:{Interlocked.Read(ref _blocksAllocated)}, " +
+                              "");
                 throw;
             }
         }
 
         static async Task GcStatsTask()
         {
-            Console.WriteLine("Starting GcStatsTask, " +
-                              $"UtcNow:{DateTime.UtcNow}, " +
-                              $"IsServerGC:{GCSettings.IsServerGC}, " +
-                              $"LatencyMode:{GCSettings.LatencyMode}, " +
-                              $"LOHCompactionMode:{GCSettings.LargeObjectHeapCompactionMode}, " +
-                              "");
+            Log.Information("Starting GcStatsTask, " +
+                             $"UtcNow:{DateTime.UtcNow}, " +
+                             $"IsServerGC:{GCSettings.IsServerGC}, " +
+                             $"LatencyMode:{GCSettings.LatencyMode}, " +
+                             $"LOHCompactionMode:{GCSettings.LargeObjectHeapCompactionMode}, " +
+                             "");
 
             await Task.Delay(TimeSpan.FromSeconds(1));
 
             if (File.Exists(OOM_CONTROL))
             {
-                Console.WriteLine($"{OOM_CONTROL}:");
-                Console.WriteLine(await File.ReadAllTextAsync(OOM_CONTROL));
+                Log.Information($"{OOM_CONTROL}:");
+                Log.Information(await File.ReadAllTextAsync(OOM_CONTROL));
             }
 
             if (File.Exists(LIMIT_IN_BYTES))
             {
-                Console.WriteLine($"{LIMIT_IN_BYTES}:");
-                Console.WriteLine(ToSize(Convert.ToInt64(File.ReadLines(LIMIT_IN_BYTES).First())));
+                Log.Information($"{LIMIT_IN_BYTES}:");
+                Log.Information(ToSize(Convert.ToInt64(File.ReadLines(LIMIT_IN_BYTES).First())));
             }
 
             var stats = new Queue<GCMemoryInfo>();
@@ -132,7 +138,7 @@ namespace GcTesting
                     usageInBytes = ToSize(Convert.ToInt64(File.ReadLines(USAGE_IN_BYTES).First()));
                 }
 
-                Console.WriteLine($"Elapsed:{(int) swGlobal.Elapsed.TotalSeconds,3:N0}s, " +
+                Log.Information($"Elapsed:{(int) swGlobal.Elapsed.TotalSeconds,3:N0}s, " +
                                   $"GC-Rate:{gcRate}, " +
                                   $"Gen012:{GC.CollectionCount(0)},{GC.CollectionCount(1)},{GC.CollectionCount(2)}, " +
                                   $"Total:{ToSize(GC.GetTotalMemory(false))}, " +
@@ -156,7 +162,7 @@ namespace GcTesting
 
         static async Task MemoryPressureTask(long allocationUnitSize, long memoryPressureRate, long minimumMemoryUsage)
         {
-            Console.WriteLine($"Starting MemoryPressureTask(allocationUnitSize={ToSize(allocationUnitSize)}, " +
+            Log.Information($"Starting MemoryPressureTask(allocationUnitSize={ToSize(allocationUnitSize)}, " +
                               $"memoryPressureRate={ToSize(memoryPressureRate)}, " +
                               $"minimumMemoryUsage={ToSize(minimumMemoryUsage)})");
 
@@ -199,9 +205,7 @@ namespace GcTesting
                 }
                 else
                 {
-                    list[idx] = allocate();
-                    if (++idx >= list.Count)
-                        idx = 0;
+                    list.Add(allocate());
 
                     allocatedMemoryInCycle += allocationUnitSize;
                 }
@@ -210,7 +214,7 @@ namespace GcTesting
 
         static async Task FilePressureTask(long filePressureSize)
         {
-            Console.WriteLine($"Starting FilePressureTask(filePressureSize={ToSize(filePressureSize)}");
+            Log.Information($"Starting FilePressureTask(filePressureSize={ToSize(filePressureSize)}");
             await Task.Delay(TimeSpan.FromSeconds(1));
 
             var rnd = new Random();
@@ -225,7 +229,7 @@ namespace GcTesting
                 f.Write(bytes);
             }
 
-            Console.WriteLine($"Written {tmpPath}");
+            Log.Information($"Written {tmpPath}");
 
             while (true)
             {
@@ -237,6 +241,23 @@ namespace GcTesting
                 }
 
                 await Task.Delay(TimeSpan.FromMilliseconds(1));
+            }
+        }
+
+        static async Task FullGCLoggerTask()
+        {
+            Log.Information($"Starting FullGCLoggerTask");
+            await Task.Delay(TimeSpan.FromSeconds(1));
+
+            while (true)
+            {
+                var gcNotificationStatus = GC.WaitForFullGCApproach();
+
+                Log.Information($"WaitForFullGCApproach:{gcNotificationStatus}");
+                if (gcNotificationStatus == GCNotificationStatus.NotApplicable)
+                {
+                    await Task.Delay(TimeSpan.FromMinutes(1));
+                }
             }
         }
 
