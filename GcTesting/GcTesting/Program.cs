@@ -8,6 +8,7 @@ using System.Runtime;
 using System.Threading;
 using CommandLine;
 using Serilog;
+using Serilog.Sinks.SystemConsole.Themes;
 
 namespace GcTesting
 {
@@ -56,7 +57,7 @@ namespace GcTesting
             try
             {
                 Log.Logger = new LoggerConfiguration()
-                    .WriteTo.Console()
+                    .WriteTo.Console(theme: ConsoleTheme.None)
                     .CreateLogger();
                 
                 await Parser.Default.ParseArguments<Options>(args).WithParsedAsync(async options =>
