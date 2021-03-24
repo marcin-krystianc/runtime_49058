@@ -18,6 +18,7 @@ namespace GcTesting
         private const string LIMIT_IN_BYTES = "/sys/fs/cgroup/memory/memory.limit_in_bytes";
         private static long _blocksAllocated = 0;
         private static long _fullGcCompleted = -1;
+        private static List<byte[]> _allocatedBlocks;
         
         public class Options
         {
@@ -87,6 +88,7 @@ namespace GcTesting
                 Log.Information(e.ToString());
 
                 var gcInfo = GC.GetGCMemoryInfo();
+                Log.Information("Handling OutOfMemoryException");
                 Log.Information($"Gen012:{GC.CollectionCount(0)},{GC.CollectionCount(1)},{GC.CollectionCount(2)}, " +
                               $"Total:{ToSize(GC.GetTotalMemory(false))}, " +
                               $"Allocated:{ToSize(GC.GetTotalAllocatedBytes())}, " +
@@ -198,8 +200,8 @@ namespace GcTesting
             };
 
             var initialSize = Convert.ToInt32(minimumMemoryUsage / allocationUnitSize);
-            var list = new List<byte[]>(initialSize);
-            list.AddRange(Enumerable.Range(0, initialSize).Select(_ => allocate()));
+            _allocatedBlocks = new List<byte[]>(initialSize);
+            _allocatedBlocks.AddRange(Enumerable.Range(0, initialSize).Select(_ => allocate()));
             
             var allocatedMemoryInCycle = 0L;
             var cycleSw = Stopwatch.StartNew();
@@ -221,12 +223,12 @@ namespace GcTesting
                 {
                     if (leakMemory)
                     {
-                        list.Add(allocate());
+                        _allocatedBlocks.Add(allocate());
                     }
                     else
                     {
-                        list[idx] = allocate();
-                        if (++idx >= list.Count)
+                        _allocatedBlocks[idx] = allocate();
+                        if (++idx >= _allocatedBlocks.Count)
                             idx = 0;
                     }
                     
@@ -283,10 +285,8 @@ namespace GcTesting
                     _fullGcCompleted = -2;
                 }
 
-                var gcNotificationStatus = GC.WaitForFullGCComplete();
+                GC.WaitForFullGCComplete();
                 Interlocked.Increment(ref _fullGcCompleted);
-
-                Log.Information($"WaitForFullGCComplete:{gcNotificationStatus}");
             }
         }
 
