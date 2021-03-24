@@ -85,10 +85,10 @@ namespace GcTesting
             }
             catch (OutOfMemoryException e)
             {
-                Log.Information(e.ToString());
+                Log.Information(e.ToString() + Environment.NewLine);
 
                 var gcInfo = GC.GetGCMemoryInfo();
-                Log.Information("Handling OutOfMemoryException");
+                
                 Log.Information($"Gen012:{GC.CollectionCount(0)},{GC.CollectionCount(1)},{GC.CollectionCount(2)}, " +
                               $"Total:{ToSize(GC.GetTotalMemory(false))}, " +
                               $"Allocated:{ToSize(GC.GetTotalAllocatedBytes())}, " +
