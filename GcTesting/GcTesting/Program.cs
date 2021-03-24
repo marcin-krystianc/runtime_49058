@@ -17,11 +17,15 @@ namespace GcTesting
         private const string OOM_CONTROL = "/sys/fs/cgroup/memory/memory.oom_control";
         private const string LIMIT_IN_BYTES = "/sys/fs/cgroup/memory/memory.limit_in_bytes";
         private static long _blocksAllocated = 0;
-
+        private static long _fullGcCompleted = -1;
+        
         public class Options
         {
             [Option(Required = false, Default = true)]
             public bool? MemoryPressureTask { get; set; }
+            
+            [Option(Required = false, Default = true, HelpText = "Register for full-GC notifications and counts them.")]
+            public bool? GcNotificationsTask { get; set; }
 
             [Option(Required = false, Default = true)]
             public bool? FilePressureTask { get; set; }
@@ -40,7 +44,6 @@ namespace GcTesting
 
             [Option(Required = false, Default = "1gb")]
             public string FilePressureSize { get; set; }
-
             internal long AllocationUnitSizeValue => FromSize(AllocationUnitSize);
             internal long MemoryPressureRateValue => FromSize(MemoryPressureRate);
             internal long MinimumMemoryUsageValue => FromSize(MinimumMemoryUsage);
@@ -59,7 +62,11 @@ namespace GcTesting
                 {
                     var tasks = new List<Task>();
                     tasks.Add(GcStatsTask());
-                    tasks.Add(FullGCLoggerTask());
+
+                    if (options.GcNotificationsTask == true)
+                    {
+                        tasks.Add(FullGcLoggerTask());
+                    }
 
                     if (options.FilePressureTask == true)
                     {
@@ -89,6 +96,7 @@ namespace GcTesting
                               $"Available:{ToSize(gcInfo.TotalAvailableMemoryBytes)}, " +
                               $"HighMemoryLoadThreshold:{ToSize(gcInfo.HighMemoryLoadThresholdBytes)}, " +
                               $"BlockAllocations:{Interlocked.Read(ref _blocksAllocated)}, " +
+                              $"FullGcCompleted:{Interlocked.Read(ref _fullGcCompleted)}, " +
                               "");
                 throw;
             }
@@ -142,18 +150,19 @@ namespace GcTesting
                 }
 
                 Log.Information($"Elapsed:{(int) swGlobal.Elapsed.TotalSeconds,3:N0}s, " +
-                                  $"GC-Rate:{gcRate}, " +
-                                  $"Gen012:{GC.CollectionCount(0)},{GC.CollectionCount(1)},{GC.CollectionCount(2)}, " +
-                                  $"Total:{ToSize(GC.GetTotalMemory(false))}, " +
-                                  $"Allocated:{ToSize(GC.GetTotalAllocatedBytes())}, " +
-                                  $"HeapSize:{ToSize(gcInfo.HeapSizeBytes)}, " +
-                                  $"MemoryLoad:{ToSize(gcInfo.MemoryLoadBytes)}, " +
-                                  $"Committed:{ToSize(gcInfo.TotalCommittedBytes)}, " +
-                                  $"Available:{ToSize(gcInfo.TotalAvailableMemoryBytes)}, " +
-                                  $"HighMemoryLoadThreshold:{ToSize(gcInfo.HighMemoryLoadThresholdBytes)}, " +
-                                  $"CGroupUsageInBytes:{usageInBytes}, " +
-                                  $"BlockAllocations:{Interlocked.Read(ref _blocksAllocated)}, " +
-                                  "");
+                                $"GC-Rate:{gcRate}, " +
+                                $"Gen012:{GC.CollectionCount(0)},{GC.CollectionCount(1)},{GC.CollectionCount(2)}, " +
+                                $"Total:{ToSize(GC.GetTotalMemory(false))}, " +
+                                $"Allocated:{ToSize(GC.GetTotalAllocatedBytes())}, " +
+                                $"HeapSize:{ToSize(gcInfo.HeapSizeBytes)}, " +
+                                $"MemoryLoad:{ToSize(gcInfo.MemoryLoadBytes)}, " +
+                                $"Committed:{ToSize(gcInfo.TotalCommittedBytes)}, " +
+                                $"Available:{ToSize(gcInfo.TotalAvailableMemoryBytes)}, " +
+                                $"HighMemoryLoadThreshold:{ToSize(gcInfo.HighMemoryLoadThresholdBytes)}, " +
+                                $"CGroupUsageInBytes:{usageInBytes}, " +
+                                $"BlockAllocations:{Interlocked.Read(ref _blocksAllocated)}, " +
+                                $"FullGcCompleted:{Interlocked.Read(ref _fullGcCompleted)}, " +
+                                "");
 
                 var elapsed = sw.Elapsed;
                 if (elapsed < TimeSpan.FromSeconds(1))
@@ -258,20 +267,26 @@ namespace GcTesting
             }
         }
 
-        static async Task FullGCLoggerTask()
+        static async Task FullGcLoggerTask()
         {
             Log.Information($"Starting FullGCLoggerTask");
             await Task.Delay(TimeSpan.FromSeconds(1));
 
+            GC.RegisterForFullGCNotification(1, 1);
+            _fullGcCompleted = 0;
+            
             while (true)
             {
-                var gcNotificationStatus = GC.WaitForFullGCApproach();
-
-                Log.Information($"WaitForFullGCApproach:{gcNotificationStatus}");
-                if (gcNotificationStatus == GCNotificationStatus.NotApplicable)
+                if (GC.WaitForFullGCApproach() == GCNotificationStatus.NotApplicable)
                 {
                     await Task.Delay(TimeSpan.FromMinutes(1));
+                    _fullGcCompleted = -2;
                 }
+
+                var gcNotificationStatus = GC.WaitForFullGCComplete();
+                Interlocked.Increment(ref _fullGcCompleted);
+
+                Log.Information($"WaitForFullGCComplete:{gcNotificationStatus}");
             }
         }
 
