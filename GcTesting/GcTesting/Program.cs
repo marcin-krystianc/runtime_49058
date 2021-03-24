@@ -34,6 +34,9 @@ namespace GcTesting
 
             [Option(Required = false, Default = "1gb")]
             public string MinimumMemoryUsage { get; set; }
+            
+            [Option(Required = false, Default = false)]
+            public bool LeakMemory{ get; set; }
 
             [Option(Required = false, Default = "1gb")]
             public string FilePressureSize { get; set; }
@@ -66,7 +69,7 @@ namespace GcTesting
                     if (options.MemoryPressureTask == true)
                     {
                         tasks.Add(MemoryPressureTask(options.AllocationUnitSizeValue, options.MemoryPressureRateValue,
-                            options.MinimumMemoryUsageValue));
+                            options.MinimumMemoryUsageValue, options.LeakMemory));
                     }
 
                     await await Task.WhenAny(tasks);
@@ -160,11 +163,12 @@ namespace GcTesting
             }
         }
 
-        static async Task MemoryPressureTask(long allocationUnitSize, long memoryPressureRate, long minimumMemoryUsage)
+        static async Task MemoryPressureTask(long allocationUnitSize, long memoryPressureRate, long minimumMemoryUsage, bool leakMemory)
         {
             Log.Information($"Starting MemoryPressureTask(allocationUnitSize={ToSize(allocationUnitSize)}, " +
-                              $"memoryPressureRate={ToSize(memoryPressureRate)}, " +
-                              $"minimumMemoryUsage={ToSize(minimumMemoryUsage)})");
+                            $"memoryPressureRate={ToSize(memoryPressureRate)}, " +
+                            $"minimumMemoryUsage={ToSize(minimumMemoryUsage)}, " +
+                            $"leakMemory={leakMemory}");
 
             await Task.Delay(TimeSpan.FromSeconds(1));
 
@@ -184,10 +188,11 @@ namespace GcTesting
                 return bytes;
             };
 
-            var list = new List<byte[]>(Enumerable.Range(0, Convert.ToInt32(minimumMemoryUsage / allocationUnitSize))
-                .Select(x => allocate()));
-
-            var allocatedMemoryInCycle = 0l;
+            var initialSize = Convert.ToInt32(minimumMemoryUsage / allocationUnitSize);
+            var list = new List<byte[]>(initialSize);
+            list.AddRange(Enumerable.Range(0, initialSize).Select(_ => allocate()));
+            
+            var allocatedMemoryInCycle = 0L;
             var cycleSw = Stopwatch.StartNew();
             var idx = 0;
             while (true)
@@ -205,8 +210,17 @@ namespace GcTesting
                 }
                 else
                 {
-                    list.Add(allocate());
-
+                    if (leakMemory)
+                    {
+                        list.Add(allocate());
+                    }
+                    else
+                    {
+                        list[idx] = allocate();
+                        if (++idx >= list.Count)
+                            idx = 0;
+                    }
+                    
                     allocatedMemoryInCycle += allocationUnitSize;
                 }
             }
@@ -266,7 +280,7 @@ namespace GcTesting
         {
             var suffixes = new[] {"b", "kb", "mb", "gb", "tb"};
             var multipliers = Enumerable.Range(0, suffixes.Length)
-                .ToDictionary(i => suffixes[i], i => 1l << (10 * i), StringComparer.OrdinalIgnoreCase);
+                .ToDictionary(i => suffixes[i], i => 1L << (10 * i), StringComparer.OrdinalIgnoreCase);
 
             var suffix = suffixes
                 .Select(suffix => (v.EndsWith(suffix, StringComparison.OrdinalIgnoreCase), suffix))
