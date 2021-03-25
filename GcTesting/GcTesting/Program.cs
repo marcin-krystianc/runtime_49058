@@ -131,9 +131,7 @@ namespace GcTesting
                 {
                     usageInBytes = ToSize(Convert.ToInt64(File.ReadLines(USAGE_IN_BYTES).First()));
                 }
-
-                var process = Process.GetCurrentProcess();
-
+                
                 Log.Information($"Gen012:{GC.CollectionCount(0)},{GC.CollectionCount(1)},{GC.CollectionCount(2)}, " +
                                 $"Total:{ToSize(GC.GetTotalMemory(false))}, " +
                                 $"Allocated:{ToSize(GC.GetTotalAllocatedBytes())}, " +
@@ -142,10 +140,6 @@ namespace GcTesting
                                 $"Committed:{ToSize(gcInfo.TotalCommittedBytes)}, " +
                                 $"Available:{ToSize(gcInfo.TotalAvailableMemoryBytes)}, " +
                                 $"HighMemoryLoadThreshold:{ToSize(gcInfo.HighMemoryLoadThresholdBytes)}, " +
-                                $"WorkingSet:{ToSize(process.WorkingSet64)}, " +
-                                $"PrivateMemorySize:{ToSize(process.PrivateMemorySize64)}, " +
-                                $"PagedMemorySize:{ToSize(process.PagedMemorySize64)}, " +
-                                $"VirtualMemorySize:{ToSize(process.VirtualMemorySize64)}, " +
                                 $"CGroupUsageInBytes:{usageInBytes}, " +
                                 $"AllocatedManaged:{ToSize(Interlocked.Read(ref _allocatedManagedMemory))}, " +
                                 $"AllocatedUnmanaged:{ToSize(Interlocked.Read(ref _allocatedUnmanagedMemory))}, " +
@@ -201,8 +195,6 @@ namespace GcTesting
                     usageInBytes = ToSize(Convert.ToInt64(File.ReadLines(USAGE_IN_BYTES).First()));
                 }
 
-                var process = Process.GetCurrentProcess();
-
                 Log.Information($"Elapsed:{(int) swGlobal.Elapsed.TotalSeconds,3:N0}s, " +
                                 $"GC-Rate:{gcRate}, " +
                                 $"Gen012:{GC.CollectionCount(0)},{GC.CollectionCount(1)},{GC.CollectionCount(2)}, " +
@@ -213,10 +205,6 @@ namespace GcTesting
                                 $"Committed:{ToSize(gcInfo.TotalCommittedBytes)}, " +
                                 $"Available:{ToSize(gcInfo.TotalAvailableMemoryBytes)}, " +
                                 $"HighMemoryLoadThreshold:{ToSize(gcInfo.HighMemoryLoadThresholdBytes)}, " +
-                                $"WorkingSet:{ToSize(process.WorkingSet64)}, " +
-                                $"PrivateMemorySize:{ToSize(process.PrivateMemorySize64)}, " +
-                                $"PagedMemorySize:{ToSize(process.PagedMemorySize64)}, " +
-                                $"VirtualMemorySize:{ToSize(process.VirtualMemorySize64)}, " +
                                 $"CGroupUsageInBytes:{usageInBytes}, " +
                                 $"AllocatedManaged:{ToSize(Interlocked.Read(ref _allocatedManagedMemory))}, " +
                                 $"AllocatedUnmanaged:{ToSize(Interlocked.Read(ref _allocatedUnmanagedMemory))}, " +
