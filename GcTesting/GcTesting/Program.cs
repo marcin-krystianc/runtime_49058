@@ -55,7 +55,7 @@ namespace GcTesting
             [Option(Required = false, Default = false, HelpText = "Keep references to allocated managed memory to prevent from collecting it.")]
             public bool LeakManagedMemory { get; set; }
 
-            [Option(Required = false, Default = true, HelpText = "Runs the task populating the I/O cache (page cache).")]
+            [Option(Required = false, Default = false, HelpText = "Runs the task populating the I/O cache (page cache).")]
             public bool? FilePressureTask { get; set; }
 
             [Option(Required = false, Default = "1gb", HelpText = "Size of the file used by the file pressure task.")]
