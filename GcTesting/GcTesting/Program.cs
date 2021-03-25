@@ -141,8 +141,8 @@ namespace GcTesting
                                 $"Available:{ToSize(gcInfo.TotalAvailableMemoryBytes)}, " +
                                 $"HighMemoryLoadThreshold:{ToSize(gcInfo.HighMemoryLoadThresholdBytes)}, " +
                                 $"CGroupUsageInBytes:{usageInBytes}, " +
-                                $"ManagedBlocks:{ToSize(Interlocked.Read(ref _allocatedManagedBlocks))}, " +
-                                $"UnmanagedBlocks:{ToSize(Interlocked.Read(ref _allocatedUnmanagedBlocks))}, " +
+                                $"ManagedBlocks:{(Interlocked.Read(ref _allocatedManagedBlocks))}, " +
+                                $"UnmanagedBlocks:{(Interlocked.Read(ref _allocatedUnmanagedBlocks))}, " +
                                 $"FullGcCompleted:{Interlocked.Read(ref _fullGcCompleted)}, " +
                                 "");
                 throw;
@@ -206,8 +206,8 @@ namespace GcTesting
                                 $"Available:{ToSize(gcInfo.TotalAvailableMemoryBytes)}, " +
                                 $"HighMemoryLoadThreshold:{ToSize(gcInfo.HighMemoryLoadThresholdBytes)}, " +
                                 $"CGroupUsageInBytes:{usageInBytes}, " +
-                                $"ManagedBlocks:{ToSize(Interlocked.Read(ref _allocatedManagedBlocks))}, " +
-                                $"UnmanagedBlocks:{ToSize(Interlocked.Read(ref _allocatedUnmanagedBlocks))}, " +
+                                $"ManagedBlocks:{(Interlocked.Read(ref _allocatedManagedBlocks))}, " +
+                                $"UnmanagedBlocks:{(Interlocked.Read(ref _allocatedUnmanagedBlocks))}, " +
                                 $"FullGc:{Interlocked.Read(ref _fullGcCompleted)}, " +
                                 "");
 
