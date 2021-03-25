@@ -20,8 +20,8 @@ namespace GcTesting
         private const string LIMIT_IN_BYTES = "/sys/fs/cgroup/memory/memory.limit_in_bytes";
         private static long _fullGcCompleted = -1;
         private static List<byte[]> _managedBlocks;
-        private static long _allocatedManagedMemory = 0;
-        private static long _allocatedUnmanagedMemory = 0;
+        private static long _allocatedManagedBlocks = 0;
+        private static long _allocatedUnmanagedBlocks = 0;
 
         public class Options
         {
@@ -141,8 +141,8 @@ namespace GcTesting
                                 $"Available:{ToSize(gcInfo.TotalAvailableMemoryBytes)}, " +
                                 $"HighMemoryLoadThreshold:{ToSize(gcInfo.HighMemoryLoadThresholdBytes)}, " +
                                 $"CGroupUsageInBytes:{usageInBytes}, " +
-                                $"AllocatedManaged:{ToSize(Interlocked.Read(ref _allocatedManagedMemory))}, " +
-                                $"AllocatedUnmanaged:{ToSize(Interlocked.Read(ref _allocatedUnmanagedMemory))}, " +
+                                $"ManagedBlocks:{ToSize(Interlocked.Read(ref _allocatedManagedBlocks))}, " +
+                                $"UnmanagedBlocks:{ToSize(Interlocked.Read(ref _allocatedUnmanagedBlocks))}, " +
                                 $"FullGcCompleted:{Interlocked.Read(ref _fullGcCompleted)}, " +
                                 "");
                 throw;
@@ -199,16 +199,16 @@ namespace GcTesting
                                 $"GC-Rate:{gcRate}, " +
                                 $"Gen012:{GC.CollectionCount(0)},{GC.CollectionCount(1)},{GC.CollectionCount(2)}, " +
                                 $"Total:{ToSize(GC.GetTotalMemory(false))}, " +
-                                $"Allocated:{ToSize(GC.GetTotalAllocatedBytes())}, " +
+                                $"GcAllocated:{ToSize(GC.GetTotalAllocatedBytes())}, " +
                                 $"HeapSize:{ToSize(gcInfo.HeapSizeBytes)}, " +
                                 $"MemoryLoad:{ToSize(gcInfo.MemoryLoadBytes)}, " +
                                 $"Committed:{ToSize(gcInfo.TotalCommittedBytes)}, " +
                                 $"Available:{ToSize(gcInfo.TotalAvailableMemoryBytes)}, " +
                                 $"HighMemoryLoadThreshold:{ToSize(gcInfo.HighMemoryLoadThresholdBytes)}, " +
                                 $"CGroupUsageInBytes:{usageInBytes}, " +
-                                $"AllocatedManaged:{ToSize(Interlocked.Read(ref _allocatedManagedMemory))}, " +
-                                $"AllocatedUnmanaged:{ToSize(Interlocked.Read(ref _allocatedUnmanagedMemory))}, " +
-                                $"FullGcCompleted:{Interlocked.Read(ref _fullGcCompleted)}, " +
+                                $"ManagedBlocks:{ToSize(Interlocked.Read(ref _allocatedManagedBlocks))}, " +
+                                $"UnmanagedBlocks:{ToSize(Interlocked.Read(ref _allocatedUnmanagedBlocks))}, " +
+                                $"FullGc:{Interlocked.Read(ref _fullGcCompleted)}, " +
                                 "");
 
                 var elapsed = sw.Elapsed;
@@ -233,7 +233,7 @@ namespace GcTesting
             Func<byte[]> allocate = () =>
             {
                 var bytes = new byte[allocationUnitSize];
-                Interlocked.Add(ref _allocatedManagedMemory, allocationUnitSize);
+                Interlocked.Increment(ref _allocatedManagedBlocks);
 
                 // Write anything to the new memory block to force-commit it.  
                 for (var i = 0; i < bytes.Length; i++)
@@ -272,9 +272,13 @@ namespace GcTesting
                     }
                     else
                     {
-                        _managedBlocks[idx] = allocate();
-                        if (++idx >= _managedBlocks.Count)
-                            idx = 0;
+                        var allocatedBlock = allocate();
+                        if (_managedBlocks.Count != 0)
+                        {
+                            _managedBlocks[idx] = allocatedBlock;
+                            if (++idx >= _managedBlocks.Count)
+                                idx = 0;
+                        }
                     }
 
                     allocatedMemoryInCycle += allocationUnitSize;
@@ -292,11 +296,11 @@ namespace GcTesting
                 "");
 
             await Task.Delay(TimeSpan.FromSeconds(1));
-
+            
             Func<IntPtr> allocate = () =>
             {
                 var bytes = Marshal.AllocHGlobal((int) unmanagedAllocationUnitSize);
-                Interlocked.Add(ref _allocatedUnmanagedMemory, unmanagedAllocationUnitSize);
+                Interlocked.Increment(ref _allocatedUnmanagedBlocks);
 
                 // Write anything to the new memory block to force-commit it.  
                 for (var i = 0; i < unmanagedAllocationUnitSize; i++)
@@ -306,9 +310,10 @@ namespace GcTesting
 
                 return bytes;
             };
-
-            var unmanagedMemory = new List<IntPtr>();
-            unmanagedMemory.Add(allocate());
+              
+            var initialSize = Convert.ToInt32(minimumUnmanagedMemoryUsage / unmanagedAllocationUnitSize);
+            var unmanagedMemory = new List<IntPtr>(initialSize);
+            unmanagedMemory.AddRange(Enumerable.Range(0, initialSize).Select(_ => allocate()));
 
             var allocatedMemoryInCycle = 0L;
             var cycleSw = Stopwatch.StartNew();
