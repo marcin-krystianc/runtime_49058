@@ -18,14 +18,14 @@ namespace GcTesting
         private const string USAGE_IN_BYTES = "/sys/fs/cgroup/memory/memory.usage_in_bytes";
         private const string OOM_CONTROL = "/sys/fs/cgroup/memory/memory.oom_control";
         private const string LIMIT_IN_BYTES = "/sys/fs/cgroup/memory/memory.limit_in_bytes";
-        private static long _blocksAllocated = 0;
         private static long _fullGcCompleted = -1;
-        private static List<byte[]> _allocatedBlocks;
-
+        private static List<byte[]> _managedBlocks;
+        private static long _allocatedManagedMemory = 0;
+        private static long _allocatedUnmanagedMemory = 0;
         public class Options
         {
             [Option(Required = false, Default = true)]
-            public bool? MemoryPressureTask { get; set; }
+            public bool? MemoryPressureTask { get; set; }   
 
             [Option(Required = false, Default = false,
                 HelpText = "Runs the task for testing unmanaged memory allocations.")]
@@ -59,7 +59,6 @@ namespace GcTesting
 
             [Option(Required = false, Default = "1gb")]
             public string FilePressureSize { get; set; }
-
             internal long AllocationUnitSizeValue => FromSize(AllocationUnitSize);
             internal long MemoryPressureRateValue => FromSize(MemoryPressureRate);
             internal long UnmanagedMemoryPressureRateValue => FromSize(UnmanagedMemoryPressureRate);
@@ -106,7 +105,7 @@ namespace GcTesting
 
                     if (options.UnmanagedMemoryPressureTask == true)
                     {
-                        tasks.Add(UnmanagedMemoryPressureTask(65536, options.UnmanagedMemoryPressureRateValue,
+                        tasks.Add(UnmanagedMemoryPressureTask(1048576, options.UnmanagedMemoryPressureRateValue,
                             options.MinimumUnmanagedMemoryUsageValue));
                     }
 
@@ -127,7 +126,8 @@ namespace GcTesting
                                 $"Committed:{ToSize(gcInfo.TotalCommittedBytes)}, " +
                                 $"Available:{ToSize(gcInfo.TotalAvailableMemoryBytes)}, " +
                                 $"HighMemoryLoadThreshold:{ToSize(gcInfo.HighMemoryLoadThresholdBytes)}, " +
-                                $"BlockAllocations:{Interlocked.Read(ref _blocksAllocated)}, " +
+                                $"AllocatedManaged:{ToSize(Interlocked.Read(ref _allocatedManagedMemory))}, " +
+                                $"AllocatedUnmanaged:{ToSize(Interlocked.Read(ref _allocatedManagedMemory))}, " +
                                 $"FullGcCompleted:{Interlocked.Read(ref _fullGcCompleted)}, " +
                                 "");
                 throw;
@@ -153,8 +153,7 @@ namespace GcTesting
 
             if (File.Exists(LIMIT_IN_BYTES))
             {
-                Log.Information($"{LIMIT_IN_BYTES}:");
-                Log.Information(ToSize(Convert.ToInt64(File.ReadLines(LIMIT_IN_BYTES).First())));
+                Log.Information($"{LIMIT_IN_BYTES}:{ToSize(Convert.ToInt64(File.ReadLines(LIMIT_IN_BYTES).First()))}");
             }
 
             var stats = new Queue<GCMemoryInfo>();
@@ -218,21 +217,20 @@ namespace GcTesting
             Func<byte[]> allocate = () =>
             {
                 var bytes = new byte[allocationUnitSize];
-                Interlocked.Increment(ref _blocksAllocated);
+                Interlocked.Add(ref _allocatedManagedMemory, allocationUnitSize);
 
                 // Write anything to the new memory block to force-commit it.  
-                var seed = rnd.Next(256);
                 for (var i = 0; i < bytes.Length; i++)
                 {
-                    bytes[i] = Convert.ToByte(seed % 256);
+                    bytes[i] = 42;
                 }
 
                 return bytes;
             };
 
             var initialSize = Convert.ToInt32(minimumMemoryUsage / allocationUnitSize);
-            _allocatedBlocks = new List<byte[]>(initialSize);
-            _allocatedBlocks.AddRange(Enumerable.Range(0, initialSize).Select(_ => allocate()));
+            _managedBlocks = new List<byte[]>(initialSize);
+            _managedBlocks.AddRange(Enumerable.Range(0, initialSize).Select(_ => allocate()));
 
             var allocatedMemoryInCycle = 0L;
             var cycleSw = Stopwatch.StartNew();
@@ -254,12 +252,12 @@ namespace GcTesting
                 {
                     if (leakMemory)
                     {
-                        _allocatedBlocks.Add(allocate());
+                        _managedBlocks.Add(allocate());
                     }
                     else
                     {
-                        _allocatedBlocks[idx] = allocate();
-                        if (++idx >= _allocatedBlocks.Count)
+                        _managedBlocks[idx] = allocate();
+                        if (++idx >= _managedBlocks.Count)
                             idx = 0;
                     }
 
@@ -279,7 +277,23 @@ namespace GcTesting
 
             await Task.Delay(TimeSpan.FromSeconds(1));
 
-            Marshal.AllocHGlobal((int) minimumUnmanagedMemoryUsage);
+            Func<IntPtr> allocate = () =>
+            {
+                var bytes = Marshal.AllocHGlobal((int) unmanagedAllocationUnitSize);
+                Interlocked.Add(ref _allocatedUnmanagedMemory, unmanagedAllocationUnitSize);
+
+                // Write anything to the new memory block to force-commit it.  
+                for (var i = 0; i < unmanagedAllocationUnitSize; i++)
+                {
+                    Marshal.WriteByte(bytes, i, 42);
+                }
+
+                return bytes;
+            };
+            
+            var unmanagedMemory = new List<IntPtr>();
+            unmanagedMemory.Add(allocate());
+            
             var allocatedMemoryInCycle = 0L;
             var cycleSw = Stopwatch.StartNew();
 
@@ -298,7 +312,7 @@ namespace GcTesting
                 }
                 else
                 {
-                    Marshal.AllocHGlobal((int) unmanagedAllocationUnitSize);
+                    unmanagedMemory.Add(allocate());
                     allocatedMemoryInCycle += unmanagedAllocationUnitSize;
                 }
             }
