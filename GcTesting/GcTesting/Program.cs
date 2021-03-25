@@ -24,6 +24,9 @@ namespace GcTesting
         private static long _allocatedUnmanagedMemory = 0;
         public class Options
         {
+            [Option(Required = false, Default = "0b", HelpText = "Used for GC.AddMemoryPressure()")]
+            public string GcAddMemoryPressure { get; set; }   
+            
             [Option(Required = false, Default = true)]
             public bool? MemoryPressureTask { get; set; }   
 
@@ -65,6 +68,7 @@ namespace GcTesting
             internal long MinimumMemoryUsageValue => FromSize(MinimumMemoryUsage);
             internal long MinimumUnmanagedMemoryUsageValue => FromSize(MinimumUnmanagedMemoryUsage);
             internal long FilePressureSizeValue => FromSize(FilePressureSize);
+            internal long GcAddMemoryPressureValue => FromSize(GcAddMemoryPressure);
         }
 
         static async Task Main(string[] args)
@@ -84,6 +88,12 @@ namespace GcTesting
 
                 await Parser.Default.ParseArguments<Options>(args).WithParsedAsync(async options =>
                 {
+                    if (options.GcAddMemoryPressureValue != 0)
+                    {
+                        Log.Information($"Executing GC.AddMemoryPressure({ToSize(options.GcAddMemoryPressureValue)})");
+                        GC.AddMemoryPressure(options.GcAddMemoryPressureValue);
+                    }
+
                     var tasks = new List<Task>();
                     tasks.Add(GcStatsTask());
 
@@ -117,7 +127,14 @@ namespace GcTesting
                 Log.Information(e.ToString() + Environment.NewLine);
 
                 var gcInfo = GC.GetGCMemoryInfo();
-
+                string usageInBytes = "N/A";
+                if (File.Exists(USAGE_IN_BYTES))
+                {
+                    usageInBytes = ToSize(Convert.ToInt64(File.ReadLines(USAGE_IN_BYTES).First()));
+                }
+                
+                var process = Process.GetCurrentProcess();
+                
                 Log.Information($"Gen012:{GC.CollectionCount(0)},{GC.CollectionCount(1)},{GC.CollectionCount(2)}, " +
                                 $"Total:{ToSize(GC.GetTotalMemory(false))}, " +
                                 $"Allocated:{ToSize(GC.GetTotalAllocatedBytes())}, " +
@@ -126,8 +143,13 @@ namespace GcTesting
                                 $"Committed:{ToSize(gcInfo.TotalCommittedBytes)}, " +
                                 $"Available:{ToSize(gcInfo.TotalAvailableMemoryBytes)}, " +
                                 $"HighMemoryLoadThreshold:{ToSize(gcInfo.HighMemoryLoadThresholdBytes)}, " +
+                                $"WorkingSet:{ToSize(process.WorkingSet64)}, " +
+                                $"PrivateMemorySize:{ToSize(process.PrivateMemorySize64)}, " +
+                                $"PagedMemorySize:{ToSize(process.PagedMemorySize64)}, " +
+                                $"VirtualMemorySize:{ToSize(process.VirtualMemorySize64)}, " +
+                                $"CGroupUsageInBytes:{usageInBytes}, " +
                                 $"AllocatedManaged:{ToSize(Interlocked.Read(ref _allocatedManagedMemory))}, " +
-                                $"AllocatedUnmanaged:{ToSize(Interlocked.Read(ref _allocatedManagedMemory))}, " +
+                                $"AllocatedUnmanaged:{ToSize(Interlocked.Read(ref _allocatedUnmanagedMemory))}, " +
                                 $"FullGcCompleted:{Interlocked.Read(ref _fullGcCompleted)}, " +
                                 "");
                 throw;
@@ -180,6 +202,8 @@ namespace GcTesting
                     usageInBytes = ToSize(Convert.ToInt64(File.ReadLines(USAGE_IN_BYTES).First()));
                 }
 
+                var process = Process.GetCurrentProcess();
+        
                 Log.Information($"Elapsed:{(int) swGlobal.Elapsed.TotalSeconds,3:N0}s, " +
                                 $"GC-Rate:{gcRate}, " +
                                 $"Gen012:{GC.CollectionCount(0)},{GC.CollectionCount(1)},{GC.CollectionCount(2)}, " +
@@ -190,8 +214,13 @@ namespace GcTesting
                                 $"Committed:{ToSize(gcInfo.TotalCommittedBytes)}, " +
                                 $"Available:{ToSize(gcInfo.TotalAvailableMemoryBytes)}, " +
                                 $"HighMemoryLoadThreshold:{ToSize(gcInfo.HighMemoryLoadThresholdBytes)}, " +
+                                $"WorkingSet:{ToSize(process.WorkingSet64)}, " +
+                                $"PrivateMemorySize:{ToSize(process.PrivateMemorySize64)}, " +
+                                $"PagedMemorySize:{ToSize(process.PagedMemorySize64)}, " +
+                                $"VirtualMemorySize:{ToSize(process.VirtualMemorySize64)}, " +
                                 $"CGroupUsageInBytes:{usageInBytes}, " +
-                                $"BlockAllocations:{Interlocked.Read(ref _blocksAllocated)}, " +
+                                $"AllocatedManaged:{ToSize(Interlocked.Read(ref _allocatedManagedMemory))}, " +
+                                $"AllocatedUnmanaged:{ToSize(Interlocked.Read(ref _allocatedUnmanagedMemory))}, " +
                                 $"FullGcCompleted:{Interlocked.Read(ref _fullGcCompleted)}, " +
                                 "");
 
