@@ -83,6 +83,7 @@ namespace GcTesting
                                 $"RuntimeIdentifier:{System.Runtime.InteropServices.RuntimeInformation.RuntimeIdentifier}, " +
                                 $"ProcessArchitecture:{System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture}, " +
                                 $"FrameworkDescription:{System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription}, " +
+                                $"Environment.ProcessorCount:{Environment.ProcessorCount}, " +
                                 "");
 
                 await Parser.Default.ParseArguments<Options>(args).WithParsedAsync(async options =>
