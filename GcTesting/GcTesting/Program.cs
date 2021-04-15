@@ -11,6 +11,7 @@ using CommandLine;
 using Serilog;
 using Serilog.Sinks.SystemConsole.Themes;
 
+
 namespace GcTesting
 {
     class Program
@@ -139,8 +140,6 @@ namespace GcTesting
                                 $"HeapSize:{ToSize(gcInfo.HeapSizeBytes)}, " +
                                 $"MemoryLoad:{ToSize(gcInfo.MemoryLoadBytes)}, " +
                                 $"Committed:{ToSize(gcInfo.TotalCommittedBytes)}, " +
-                                $"Available:{ToSize(gcInfo.TotalAvailableMemoryBytes)}, " +
-                                $"HighMemoryLoadThreshold:{ToSize(gcInfo.HighMemoryLoadThresholdBytes)}, " +
                                 $"CGroupUsageInBytes:{usageInBytes}, " +
                                 $"ManagedBlocks:{(Interlocked.Read(ref _allocatedManagedBlocks))}, " +
                                 $"UnmanagedBlocks:{(Interlocked.Read(ref _allocatedUnmanagedBlocks))}, " +
@@ -157,6 +156,8 @@ namespace GcTesting
                             $"IsServerGC:{GCSettings.IsServerGC}, " +
                             $"LatencyMode:{GCSettings.LatencyMode}, " +
                             $"LOHCompactionMode:{GCSettings.LargeObjectHeapCompactionMode}, " +
+                            $"TotalAvailableMemory:{ToSize(GC.GetGCMemoryInfo().TotalAvailableMemoryBytes)}, " +
+                            $"HighMemoryLoadThreshold:{ToSize(GC.GetGCMemoryInfo().HighMemoryLoadThresholdBytes)}, " +
                             "");
 
             await Task.Delay(TimeSpan.FromSeconds(1));
@@ -204,8 +205,6 @@ namespace GcTesting
                                 $"HeapSize:{ToSize(gcInfo.HeapSizeBytes)}, " +
                                 $"MemoryLoad:{ToSize(gcInfo.MemoryLoadBytes)}, " +
                                 $"Committed:{ToSize(gcInfo.TotalCommittedBytes)}, " +
-                                $"Available:{ToSize(gcInfo.TotalAvailableMemoryBytes)}, " +
-                                $"HighMemoryLoadThreshold:{ToSize(gcInfo.HighMemoryLoadThresholdBytes)}, " +
                                 $"CGroupUsageInBytes:{usageInBytes}, " +
                                 $"ManagedBlocks:{(Interlocked.Read(ref _allocatedManagedBlocks))}, " +
                                 $"UnmanagedBlocks:{(Interlocked.Read(ref _allocatedUnmanagedBlocks))}, " +
