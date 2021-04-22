@@ -19,6 +19,7 @@ namespace GcTesting
         private const string USAGE_IN_BYTES = "/sys/fs/cgroup/memory/memory.usage_in_bytes";
         private const string OOM_CONTROL = "/sys/fs/cgroup/memory/memory.oom_control";
         private const string LIMIT_IN_BYTES = "/sys/fs/cgroup/memory/memory.limit_in_bytes";
+        private const string MEMORY_STAT = "/sys/fs/cgroup/memory/memory.stat";
         private static long _fullGcCompleted = -1;
         private static List<byte[]> _managedBlocks;
         private static long _allocatedManagedBlocks = 0;
@@ -173,6 +174,7 @@ namespace GcTesting
                 Log.Information($"{LIMIT_IN_BYTES}:{ToSize(Convert.ToInt64(File.ReadLines(LIMIT_IN_BYTES).First()))}");
             }
 
+            
             var stats = new Queue<GCMemoryInfo>();
             var swGlobal = Stopwatch.StartNew();
             while (true)
@@ -192,9 +194,33 @@ namespace GcTesting
                 stats.Enqueue(gcInfo);
 
                 string usageInBytes = "N/A";
+                string calcUsage1 = "N/A";
+                string calcUsage2 = "N/A";
+                string calcUsage3 = "N/A";
+                Dictionary<string, long> memoryStat = null;
                 if (File.Exists(USAGE_IN_BYTES))
                 {
                     usageInBytes = ToSize(Convert.ToInt64(File.ReadLines(USAGE_IN_BYTES).First()));
+                }
+
+                if (File.Exists(MEMORY_STAT))
+                {
+                    memoryStat = File.ReadLines(MEMORY_STAT).Select(x => x.Split()).ToDictionary(x => x[0], x => Convert.ToInt64(x[1]));
+                }
+
+                if (memoryStat != null)
+                {
+                    calcUsage1 = ToSize(Convert.ToInt64(File.ReadLines(USAGE_IN_BYTES).First()) -
+                                memoryStat["total_inactive_file"]);
+                    
+                    calcUsage2 = ToSize(Convert.ToInt64(memoryStat["total_cache"] + 
+                                                        memoryStat["total_rss"] - 
+                                                        memoryStat["total_inactive_file"]));
+                    
+                    calcUsage3 = ToSize(Convert.ToInt64(memoryStat["total_cache"] + 
+                                                        memoryStat["total_rss"] - 
+                                                        memoryStat["total_active_file"] - 
+                                                        memoryStat["total_inactive_file"]));
                 }
 
                 Log.Information($"Elapsed:{(int) swGlobal.Elapsed.TotalSeconds,3:N0}s, " +
@@ -209,6 +235,9 @@ namespace GcTesting
                                 $"ManagedBlocks:{(Interlocked.Read(ref _allocatedManagedBlocks))}, " +
                                 $"UnmanagedBlocks:{(Interlocked.Read(ref _allocatedUnmanagedBlocks))}, " +
                                 $"FullGc:{Interlocked.Read(ref _fullGcCompleted)}, " +
+                                $"CalcUsage1:{calcUsage1}, " +
+                                $"CalcUsage2:{calcUsage2}, " +
+                                $"CalcUsage3:{calcUsage3}, " +
                                 "");
 
                 var elapsed = sw.Elapsed;
