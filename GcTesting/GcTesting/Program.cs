@@ -63,6 +63,9 @@ namespace GcTesting
             [Option(Required = false, Default = "1gb", HelpText = "Size of the file used by the file pressure task.")]
             public string FilePressureSize { get; set; }
             
+            [Option(Required = false, Default = false, HelpText = "Perform writes instead of reads in the file pressure task.")]
+            public bool? FilePressureWriting { get; set; }
+
             internal long AllocationUnitSizeValue => FromSize(AllocationUnitSize);
             internal long MemoryPressureRateValue => FromSize(MemoryPressureRate);
             internal long UnmanagedMemoryPressureRateValue => FromSize(UnmanagedMemoryPressureRate);
@@ -71,7 +74,36 @@ namespace GcTesting
             internal long FilePressureSizeValue => FromSize(FilePressureSize);
             internal long GcAddMemoryPressureValue => FromSize(GcAddMemoryPressure);
         }
+        
+        [StructLayout(LayoutKind.Sequential)]
+        internal class MEMORYSTATUSEX
+        {
+            internal uint dwLength;
+            internal uint dwMemoryLoad;
+            internal ulong ullTotalPhys;
+            internal ulong ullAvailPhys;
+            internal ulong ullTotalPageFile;
+            internal ulong ullAvailPageFile;
+            internal ulong ullTotalVirtual;
+            internal ulong ullAvailVirtual;
+            internal ulong ullAvailExtendedVirtual;
 
+            public MEMORYSTATUSEX()
+            {
+                dwLength = (uint)Marshal.SizeOf(typeof(MEMORYSTATUSEX));
+            }
+        }
+        
+        [return: MarshalAs(UnmanagedType.Bool)]
+        [DllImport("kernel32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+        static extern bool GlobalMemoryStatusEx( [In,Out] MEMORYSTATUSEX lpBuffer); 
+        //Used to use ref with comment below
+        // but ref doesn't work.(Use of [In, Out] instead of ref
+        //causes access violation exception on windows xp
+        //comment: most probably caused by MEMORYSTATUSEX being declared as a class
+        //(at least at pinvoke.net). On Win7, ref and struct work.
+
+        
         static async Task Main(string[] args)
         {
             try
@@ -106,7 +138,7 @@ namespace GcTesting
 
                     if (options.FilePressureTask == true)
                     {
-                        tasks.Add(FilePressureTask(options.FilePressureSizeValue));
+                        tasks.Add(FilePressureTask(options.FilePressureSizeValue, options.FilePressureWriting == true));
                     }
 
                     if (options.MemoryPressureTask == true)
@@ -235,6 +267,7 @@ namespace GcTesting
                                 $"ManagedBlocks:{(Interlocked.Read(ref _allocatedManagedBlocks))}, " +
                                 $"UnmanagedBlocks:{(Interlocked.Read(ref _allocatedUnmanagedBlocks))}, " +
                                 $"FullGc:{Interlocked.Read(ref _fullGcCompleted)}, " +
+                                $"statEx.dwMemoryLoad:{statEx.dwMemoryLoad}, " +
                                 $"CalcUsage1:{calcUsage1}, " +
                                 $"CalcUsage2:{calcUsage2}, " +
                                 $"CalcUsage3:{calcUsage3}, " +
@@ -368,7 +401,7 @@ namespace GcTesting
             }
         }
 
-        static async Task FilePressureTask(long filePressureSize)
+        static async Task FilePressureTask(long filePressureSize, bool writing)
         {
             Log.Information($"Starting FilePressureTask(filePressureSize={ToSize(filePressureSize)}");
             await Task.Delay(TimeSpan.FromSeconds(1));
@@ -393,7 +426,14 @@ namespace GcTesting
 
                 for (var i = 0; i < filePressureSize / bytes.Length; i++)
                 {
-                    f.Read(bytes);
+                    if (writing)
+                    {
+                        f.Write(bytes);
+                    }
+                    else
+                    {
+                        f.Read(bytes);
+                    }
                 }
 
                 await Task.Delay(TimeSpan.FromSeconds(1));
