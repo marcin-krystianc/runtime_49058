@@ -229,6 +229,8 @@ namespace GcTesting
                 string calcUsage1 = "N/A";
                 string calcUsage2 = "N/A";
                 string calcUsage3 = "N/A";
+                string calcUsage4 = "N/A";
+                string memoryLoad = "N/A";
                 Dictionary<string, long> memoryStat = null;
                 if (File.Exists(USAGE_IN_BYTES))
                 {
@@ -238,6 +240,12 @@ namespace GcTesting
                 if (File.Exists(MEMORY_STAT))
                 {
                     memoryStat = File.ReadLines(MEMORY_STAT).Select(x => x.Split()).ToDictionary(x => x[0], x => Convert.ToInt64(x[1]));
+                }
+                var statEx = new MEMORYSTATUSEX();
+                if (Environment.OSVersion.Platform != PlatformID.Unix)
+                {
+                    GlobalMemoryStatusEx(statEx);
+                    memoryLoad = statEx.dwMemoryLoad.ToString();
                 }
 
                 if (memoryStat != null)
@@ -253,6 +261,11 @@ namespace GcTesting
                                                         memoryStat["total_rss"] - 
                                                         memoryStat["total_active_file"] - 
                                                         memoryStat["total_inactive_file"]));
+                    
+                    calcUsage4 = ToSize(Convert.ToInt64(File.ReadLines(USAGE_IN_BYTES).First()) 
+                                        - memoryStat["total_active_file"]
+                                        - memoryStat["total_inactive_file"]
+                                        + memoryStat["total_dirty"]);
                 }
 
                 Log.Information($"Elapsed:{(int) swGlobal.Elapsed.TotalSeconds,3:N0}s, " +
@@ -267,10 +280,11 @@ namespace GcTesting
                                 $"ManagedBlocks:{(Interlocked.Read(ref _allocatedManagedBlocks))}, " +
                                 $"UnmanagedBlocks:{(Interlocked.Read(ref _allocatedUnmanagedBlocks))}, " +
                                 $"FullGc:{Interlocked.Read(ref _fullGcCompleted)}, " +
-                                $"statEx.dwMemoryLoad:{statEx.dwMemoryLoad}, " +
+                                $"statEx.dwMemoryLoad:{memoryLoad}%, " +
                                 $"CalcUsage1:{calcUsage1}, " +
                                 $"CalcUsage2:{calcUsage2}, " +
                                 $"CalcUsage3:{calcUsage3}, " +
+                                $"CalcUsage4:{calcUsage4}, " +
                                 "");
 
                 var elapsed = sw.Elapsed;
@@ -403,7 +417,7 @@ namespace GcTesting
 
         static async Task FilePressureTask(long filePressureSize, bool writing)
         {
-            Log.Information($"Starting FilePressureTask(filePressureSize={ToSize(filePressureSize)}");
+            Log.Information($"Starting FilePressureTask(filePressureSize={ToSize(filePressureSize)}, writing={writing})");
             await Task.Delay(TimeSpan.FromSeconds(1));
 
             var rnd = new Random();

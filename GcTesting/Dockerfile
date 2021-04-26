@@ -10,7 +10,7 @@ FROM mcr.microsoft.com/dotnet/sdk:6.0.100-preview.3-focal-amd64
 
 WORKDIR /app
 COPY --from=build-env /app/out .
-COPY --from=build-env /app/Linux.x64.Release .
+# COPY --from=build-env /app/Linux.x64.Release .
 RUN apt update && apt install htop
 ENV PATH="/root/.dotnet/tools:${PATH}"
 # RUN dotnet tool install --global dotnet-counters
