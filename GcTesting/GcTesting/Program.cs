@@ -18,9 +18,11 @@ namespace GcTesting
     class Program
     {
         private const string USAGE_IN_BYTES = "/sys/fs/cgroup/memory/memory.usage_in_bytes";
+        private const string MEMORY_CURRENT = "/sys/fs/cgroup/memory.current";
         private const string OOM_CONTROL = "/sys/fs/cgroup/memory/memory.oom_control";
         private const string LIMIT_IN_BYTES = "/sys/fs/cgroup/memory/memory.limit_in_bytes";
-        private const string MEMORY_STAT = "/sys/fs/cgroup/memory/memory.stat";
+        private const string MEMORY_STAT_v1 = "/sys/fs/cgroup/memory/memory.stat";
+        private const string MEMORY_STAT_v2 = "/sys/fs/cgroup/memory.stat";
         private static long _fullGcCompleted = -1;
         private static List<byte[]> _managedBlocks;
         private static long _allocatedManagedBlocks = 0;
@@ -175,6 +177,11 @@ namespace GcTesting
                     usageInBytes = ToSize(Convert.ToInt64(File.ReadLines(USAGE_IN_BYTES).First()));
                 }
                 
+                if (File.Exists(USAGE_IN_BYTES))
+                {
+                    usageInBytes = ToSize(Convert.ToInt64(File.ReadLines(USAGE_IN_BYTES).First()));
+                }
+                
                 Log.Information($"Gen012:{GC.CollectionCount(0)},{GC.CollectionCount(1)},{GC.CollectionCount(2)}, " +
                                 $"Total:{ToSize(GC.GetTotalMemory(false))}, " +
                                 $"Allocated:{ToSize(GC.GetTotalAllocatedBytes())}, " +
@@ -236,16 +243,28 @@ namespace GcTesting
                 string calcUsage1 = "N/A";
                 string calcUsage2 = "N/A";
                 string memoryLoad = "N/A";
-                Dictionary<string, long> memoryStat = null;
+                Dictionary<string, long> memoryStatV1 = null;
+                Dictionary<string, long> memoryStatV2 = null;
                 if (File.Exists(USAGE_IN_BYTES))
                 {
                     usageInBytes = ToSize(Convert.ToInt64(File.ReadLines(USAGE_IN_BYTES).First()));
                 }
-
-                if (File.Exists(MEMORY_STAT))
+                
+                if (File.Exists(MEMORY_CURRENT))
                 {
-                    memoryStat = File.ReadLines(MEMORY_STAT).Select(x => x.Split()).ToDictionary(x => x[0], x => Convert.ToInt64(x[1]));
+                    usageInBytes = ToSize(Convert.ToInt64(File.ReadLines(MEMORY_CURRENT).First()));
                 }
+                
+                if (File.Exists(MEMORY_STAT_v1))
+                {
+                    memoryStatV1 = File.ReadLines(MEMORY_STAT_v1).Select(x => x.Split()).ToDictionary(x => x[0], x => Convert.ToInt64(x[1]));
+                }
+                
+                if (File.Exists(MEMORY_STAT_v2))
+                {
+                    memoryStatV2 = File.ReadLines(MEMORY_STAT_v2).Select(x => x.Split()).ToDictionary(x => x[0], x => Convert.ToInt64(x[1]));
+                }
+                
                 var statEx = new MEMORYSTATUSEX();
                 if (Environment.OSVersion.Platform != PlatformID.Unix)
                 {
@@ -253,19 +272,33 @@ namespace GcTesting
                     memoryLoad = statEx.dwMemoryLoad.ToString();
                 }
 
-                if (memoryStat != null)
+                if (memoryStatV1 != null)
                 {
-                    calcUsage1 = ToSize(Convert.ToInt64(memoryStat["total_inactive_anon"] +
-                                                        memoryStat["total_active_anon"] +
-                                                        memoryStat["total_dirty"] +
-                                                        memoryStat["total_unevictable"]));
+                    calcUsage1 = ToSize(Convert.ToInt64(memoryStatV1["total_inactive_anon"] +
+                                                        memoryStatV1["total_active_anon"] +
+                                                        memoryStatV1["total_dirty"] +
+                                                        memoryStatV1["total_unevictable"]));
 
                     calcUsage2 = ToSize(Convert.ToInt64(File.ReadLines(USAGE_IN_BYTES).First())
-                                        - memoryStat["total_active_file"]
-                                        - memoryStat["total_inactive_file"]
-                                        + memoryStat["total_dirty"]);
+                                        - memoryStatV1["total_active_file"]
+                                        - memoryStatV1["total_inactive_file"]
+                                        + memoryStatV1["total_dirty"]);
                 }
+                
+                if (memoryStatV2 != null)
+                {
+                    calcUsage1 = ToSize(Convert.ToInt64(memoryStatV2["inactive_anon"] +
+                                                        memoryStatV2["active_anon"] +
+                                                        memoryStatV2["file_dirty"] +
+                                                        memoryStatV2["unevictable"] +
+                                                        memoryStatV2["slab"]));
 
+                    calcUsage2 = ToSize(Convert.ToInt64(File.ReadLines(MEMORY_CURRENT).First())
+                                        - memoryStatV2["inactive_file"]
+                                        - memoryStatV2["active_file"]
+                                        + memoryStatV2["file_dirty"]);
+                }
+                
                 Log.Information($"Elapsed:{(int) swGlobal.Elapsed.TotalSeconds,3:N0}s, " +
                                 $"GC-Rate:{gcRate}, " +
                                 $"Gen012:{GC.CollectionCount(0)},{GC.CollectionCount(1)},{GC.CollectionCount(2)}, " +
