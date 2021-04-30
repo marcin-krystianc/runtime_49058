@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.IO.MemoryMappedFiles;
 using System.Threading.Tasks;
 using System.Linq;
 using System.Runtime;
@@ -19,6 +20,7 @@ namespace GcTesting
         private const string USAGE_IN_BYTES = "/sys/fs/cgroup/memory/memory.usage_in_bytes";
         private const string OOM_CONTROL = "/sys/fs/cgroup/memory/memory.oom_control";
         private const string LIMIT_IN_BYTES = "/sys/fs/cgroup/memory/memory.limit_in_bytes";
+        private const string MEMORY_STAT = "/sys/fs/cgroup/memory/memory.stat";
         private static long _fullGcCompleted = -1;
         private static List<byte[]> _managedBlocks;
         private static long _allocatedManagedBlocks = 0;
@@ -64,6 +66,12 @@ namespace GcTesting
             
             [Option(Required = false, Default = false, HelpText = "Perform writes instead of reads in the file pressure task.")]
             public bool? FilePressureWriting { get; set; }
+            
+            [Option(Required = false, Default = false, HelpText = "Use memory mapped files")]
+            public bool? FilePressureUseMemoryMaps { get; set; }
+            
+            [Option(Required = false, Default = null, HelpText = "Name of the memory map to create (can be null).")]
+            public string FilePressureMemoryMapName { get; set; }
 
             internal long AllocationUnitSizeValue => FromSize(AllocationUnitSize);
             internal long MemoryPressureRateValue => FromSize(MemoryPressureRate);
@@ -137,7 +145,8 @@ namespace GcTesting
 
                     if (options.FilePressureTask == true)
                     {
-                        tasks.Add(FilePressureTask(options.FilePressureSizeValue, options.FilePressureWriting == true));
+                        tasks.Add(FilePressureTask(options.FilePressureSizeValue, options.FilePressureWriting == true,
+                            options.FilePressureUseMemoryMaps == true, options.FilePressureMemoryMapName));
                     }
 
                     if (options.MemoryPressureTask == true)
@@ -224,15 +233,37 @@ namespace GcTesting
                 stats.Enqueue(gcInfo);
 
                 string usageInBytes = "N/A";
+                string calcUsage1 = "N/A";
+                string calcUsage2 = "N/A";
+                string memoryLoad = "N/A";
+                Dictionary<string, long> memoryStat = null;
                 if (File.Exists(USAGE_IN_BYTES))
                 {
                     usageInBytes = ToSize(Convert.ToInt64(File.ReadLines(USAGE_IN_BYTES).First()));
                 }
 
+                if (File.Exists(MEMORY_STAT))
+                {
+                    memoryStat = File.ReadLines(MEMORY_STAT).Select(x => x.Split()).ToDictionary(x => x[0], x => Convert.ToInt64(x[1]));
+                }
                 var statEx = new MEMORYSTATUSEX();
                 if (Environment.OSVersion.Platform != PlatformID.Unix)
                 {
                     GlobalMemoryStatusEx(statEx);
+                    memoryLoad = statEx.dwMemoryLoad.ToString();
+                }
+
+                if (memoryStat != null)
+                {
+                    calcUsage1 = ToSize(Convert.ToInt64(memoryStat["total_inactive_anon"] +
+                                                        memoryStat["total_active_anon"] +
+                                                        memoryStat["total_dirty"] +
+                                                        memoryStat["total_unevictable"]));
+
+                    calcUsage2 = ToSize(Convert.ToInt64(File.ReadLines(USAGE_IN_BYTES).First())
+                                        - memoryStat["total_active_file"]
+                                        - memoryStat["total_inactive_file"]
+                                        + memoryStat["total_dirty"]);
                 }
 
                 Log.Information($"Elapsed:{(int) swGlobal.Elapsed.TotalSeconds,3:N0}s, " +
@@ -247,7 +278,9 @@ namespace GcTesting
                                 $"ManagedBlocks:{(Interlocked.Read(ref _allocatedManagedBlocks))}, " +
                                 $"UnmanagedBlocks:{(Interlocked.Read(ref _allocatedUnmanagedBlocks))}, " +
                                 $"FullGc:{Interlocked.Read(ref _fullGcCompleted)}, " +
-                                $"statEx.dwMemoryLoad:{statEx.dwMemoryLoad}, " +
+                                $"statEx.dwMemoryLoad:{memoryLoad}%, " +
+                                $"CalcUsage1:{calcUsage1}, " +
+                                $"CalcUsage2:{calcUsage2}, " +
                                 "");
 
                 var elapsed = sw.Elapsed;
@@ -378,42 +411,76 @@ namespace GcTesting
             }
         }
 
-        static async Task FilePressureTask(long filePressureSize, bool writing)
+        static async Task FilePressureTask(long filePressureSize, bool writing, bool useFileMapping, string mapName)
         {
-            Log.Information($"Starting FilePressureTask(filePressureSize={ToSize(filePressureSize)}");
+            Log.Information($"Starting FilePressureTask(filePressureSize={ToSize(filePressureSize)}, writing={writing}, useFileMapping={useFileMapping}, mapName={mapName})");
             await Task.Delay(TimeSpan.FromSeconds(1));
 
             var rnd = new Random();
             var tmpPath = Path.Combine(Path.GetTempPath(), "GcTesting");
             var bytes = new byte[65536];
-            await using var f = File.Open(tmpPath, FileMode.OpenOrCreate, FileAccess.ReadWrite);
-
-            rnd.NextBytes(bytes);
-
-            for (var i = 0; i < filePressureSize / bytes.Length; i++)
+            await using (var f = File.Open(tmpPath, FileMode.OpenOrCreate, FileAccess.Write))
             {
-                f.Write(bytes);
-            }
-
-            Log.Information($"Written {tmpPath}");
-
-            while (true)
-            {
-                f.Seek(0, SeekOrigin.Begin);
+                rnd.NextBytes(bytes);
 
                 for (var i = 0; i < filePressureSize / bytes.Length; i++)
                 {
-                    if (writing)
-                    {
-                        f.Write(bytes);
-                    }
-                    else
-                    {
-                        f.Read(bytes);
-                    }
+                    f.Write(bytes);
                 }
 
-                await Task.Delay(TimeSpan.FromSeconds(1));
+                Log.Information($"Written {tmpPath}");
+            }
+
+            if (useFileMapping)
+            {
+                // Create the memory-mapped file.
+                using (var mmf = MemoryMappedFile.CreateFromFile(tmpPath, FileMode.Open, mapName))
+                {
+                    // Create a random access view
+                    using (var accessor = mmf.CreateViewAccessor(0, filePressureSize))
+                    {
+                        while (true)
+                        {
+                            for (var i = 0l; i < filePressureSize / bytes.Length; i++)
+                            {
+                                if (writing)
+                                {
+                                    accessor.WriteArray(i * bytes.Length, bytes, 0, bytes.Length);
+                                }
+                                else
+                                {
+                                    accessor.ReadArray(i * bytes.Length, bytes, 0, bytes.Length);
+                                }
+                            }
+                            
+                            await Task.Delay(TimeSpan.FromSeconds(1));
+                        }
+                    }
+                }
+            }
+            else
+            {
+                await using (var f = File.Open(tmpPath, FileMode.OpenOrCreate, FileAccess.ReadWrite))
+                {
+                    while (true)
+                    {
+                        f.Seek(0, SeekOrigin.Begin);
+
+                        for (var i = 0; i < filePressureSize / bytes.Length; i++)
+                        {
+                            if (writing)
+                            {
+                                f.Write(bytes);
+                            }
+                            else
+                            {
+                                f.Read(bytes);
+                            }
+                        }
+
+                        await Task.Delay(TimeSpan.FromSeconds(1));
+                    }
+                }
             }
         }
 
