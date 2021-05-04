@@ -287,7 +287,8 @@ namespace GcTesting
                 
                 if (memoryStatV2 != null)
                 {
-                    calcUsage1 = ToSize(Convert.ToInt64(memoryStatV2["anon"] +
+                    calcUsage1 = ToSize(Convert.ToInt64(memoryStatV2["active_anon"] +
+                                                        memoryStatV2["inactive_anon"] +
                                                         memoryStatV2["file_dirty"] +
                                                         memoryStatV2["unevictable"]));
 
