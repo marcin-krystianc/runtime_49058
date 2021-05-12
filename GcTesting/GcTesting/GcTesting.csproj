@@ -3,7 +3,6 @@
     <PropertyGroup>
         <OutputType>Exe</OutputType>
         <TargetFrameworks>net5.0;net6.0</TargetFrameworks>
-        <!--<RuntimeFrameworkVersion>6.0.0-preview.5.21261.8</RuntimeFrameworkVersion>-->
     </PropertyGroup>
 
     <ItemGroup>
