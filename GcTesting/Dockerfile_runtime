@@ -9,7 +9,7 @@ RUN mkdir dotnet
 # https://aka.ms/dotnet/6.0/daily/dotnet-sdk-linux-arm64.tar.gz
 RUN tar -xf dotnet-sdk-6.0.100-preview.5.21261.3-linux-x64.tar.gz -C dotnet
 # https://github.com/dotnet/runtime/blob/main/docs/project/dogfooding.md#nightly-builds-table
-RUN tar -xf dotnet-runtime-6.0.0-preview.5.21261.8-linux-x64.tar.gz -C dotnet
+#RUN tar -xf dotnet-runtime-6.0.0-preview.5.21261.8-linux-x64.tar.gz -C dotnet
 RUN ./dotnet/dotnet --version
 RUN ./dotnet/dotnet nuget add source -n dotnet6 https://dnceng.pkgs.visualstudio.com/public/_packaging/dotnet6/nuget/v3/index.json
 #RUN ./dotnet/dotnet nuget add source -n gRPC https://grpc.jfrog.io/grpc/api/nuget/v3/grpc-nuget-dev
