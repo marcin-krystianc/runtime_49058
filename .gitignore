@@ -1,5 +1,7 @@
 .idea/
 obj/
 bin/
+Debug/
+x64/
 .vs/
 *.user
