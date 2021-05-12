@@ -1,0 +1,25 @@
+#FROM ubuntu:focal AS build-env
+FROM mcr.microsoft.com/dotnet/sdk:6.0.100-preview.3-focal-amd64 AS build-env
+WORKDIR /app
+
+COPY . ./
+ENV DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=true
+ENV DOTNET_MULTILEVEL_LOOKUP=0
+RUN mkdir dotnet
+# https://aka.ms/dotnet/6.0/daily/dotnet-sdk-linux-arm64.tar.gz
+RUN tar -xf dotnet-sdk-6.0.100-preview.5.21261.3-linux-x64.tar.gz -C dotnet
+# https://github.com/dotnet/runtime/blob/main/docs/project/dogfooding.md#nightly-builds-table
+RUN tar -xf dotnet-runtime-6.0.0-preview.5.21261.8-linux-x64.tar.gz -C dotnet
+RUN ./dotnet/dotnet --version
+RUN ./dotnet/dotnet nuget add source -n dotnet6 https://dnceng.pkgs.visualstudio.com/public/_packaging/dotnet6/nuget/v3/index.json
+RUN ./dotnet/dotnet nuget add source -n gRPC https://grpc.jfrog.io/grpc/api/nuget/v3/grpc-nuget-dev
+RUN ./dotnet/dotnet publish -c Release -o out --self-contained true --runtime linux-x64 --framework net6.0
+
+FROM ubuntu:focal
+#FROM mcr.microsoft.com/dotnet/sdk:6.0.100-preview.3-focal-amd64
+
+WORKDIR /app
+COPY --from=build-env /app/out .
+RUN apt update && apt install htop
+ENTRYPOINT ["./GcTesting"]
+
