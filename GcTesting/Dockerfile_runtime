@@ -12,7 +12,7 @@ RUN tar -xf dotnet-sdk-6.0.100-preview.5.21261.3-linux-x64.tar.gz -C dotnet
 RUN tar -xf dotnet-runtime-6.0.0-preview.5.21261.8-linux-x64.tar.gz -C dotnet
 RUN ./dotnet/dotnet --version
 RUN ./dotnet/dotnet nuget add source -n dotnet6 https://dnceng.pkgs.visualstudio.com/public/_packaging/dotnet6/nuget/v3/index.json
-RUN ./dotnet/dotnet nuget add source -n gRPC https://grpc.jfrog.io/grpc/api/nuget/v3/grpc-nuget-dev
+#RUN ./dotnet/dotnet nuget add source -n gRPC https://grpc.jfrog.io/grpc/api/nuget/v3/grpc-nuget-dev
 RUN ./dotnet/dotnet publish -c Release -o out --self-contained true --runtime linux-x64 --framework net6.0
 
 FROM ubuntu:focal
