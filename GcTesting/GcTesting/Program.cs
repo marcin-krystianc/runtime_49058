@@ -182,16 +182,13 @@ namespace GcTesting
                     usageInBytes = ToSize(Convert.ToInt64(File.ReadLines(USAGE_IN_BYTES).First()));
                 }
                 
-                Log.Information($"Gen012:{GC.CollectionCount(0)},{GC.CollectionCount(1)},{GC.CollectionCount(2)}, " +
+                Log.Information($"Gen012Full:{GC.CollectionCount(0)},{GC.CollectionCount(1)},{GC.CollectionCount(2)},{Interlocked.Read(ref _fullGcCompleted)} " +
                                 $"Total:{ToSize(GC.GetTotalMemory(false))}, " +
                                 $"Allocated:{ToSize(GC.GetTotalAllocatedBytes())}, " +
                                 $"HeapSize:{ToSize(gcInfo.HeapSizeBytes)}, " +
                                 $"MemoryLoad:{ToSize(gcInfo.MemoryLoadBytes)}, " +
                                 $"Committed:{ToSize(gcInfo.TotalCommittedBytes)}, " +
-                                $"CGroupUsageInBytes:{usageInBytes}, " +
-                                $"ManagedBlocks:{(Interlocked.Read(ref _allocatedManagedBlocks))}, " +
-                                $"UnmanagedBlocks:{(Interlocked.Read(ref _allocatedUnmanagedBlocks))}, " +
-                                $"FullGcCompleted:{Interlocked.Read(ref _fullGcCompleted)}, " +
+                                $"CGroup:{usageInBytes}, " +
                                 "");
                 throw;
             }
@@ -300,19 +297,20 @@ namespace GcTesting
                 
                 Log.Information($"Elapsed:{(int) swGlobal.Elapsed.TotalSeconds,3:N0}s, " +
                                 $"GC-Rate:{gcRate}, " +
-                                $"Gen012:{GC.CollectionCount(0)},{GC.CollectionCount(1)},{GC.CollectionCount(2)}, " +
+                                $"Gen012Full:{GC.CollectionCount(0)},{GC.CollectionCount(1)},{GC.CollectionCount(2)},{Interlocked.Read(ref _fullGcCompleted)} " +
                                 $"Total:{ToSize(GC.GetTotalMemory(false))}, " +
                                 $"GcAllocated:{ToSize(GC.GetTotalAllocatedBytes())}, " +
                                 $"HeapSize:{ToSize(gcInfo.HeapSizeBytes)}, " +
                                 $"MemoryLoad:{ToSize(gcInfo.MemoryLoadBytes)}, " +
                                 $"Committed:{ToSize(gcInfo.TotalCommittedBytes)}, " +
-                                $"CGroupUsageInBytes:{usageInBytes}, " +
+                                $"CGroup:{usageInBytes}, " +
+                                /*
+                                $"statEx.dwMemoryLoad:{memoryLoad}, " +
                                 $"ManagedBlocks:{(Interlocked.Read(ref _allocatedManagedBlocks))}, " +
                                 $"UnmanagedBlocks:{(Interlocked.Read(ref _allocatedUnmanagedBlocks))}, " +
-                                $"FullGc:{Interlocked.Read(ref _fullGcCompleted)}, " +
-                                $"statEx.dwMemoryLoad:{memoryLoad}%, " +
                                 $"CalcUsage1:{calcUsage1}, " +
                                 $"CalcUsage2:{calcUsage2}, " +
+                                */
                                 "");
 
                 var elapsed = sw.Elapsed;
